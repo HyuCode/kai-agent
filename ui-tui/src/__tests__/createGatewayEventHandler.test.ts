@@ -173,6 +173,19 @@ describe('createGatewayEventHandler', () => {
     expect(getUiState().status).toBe('⏸ goal paused')
   })
 
+  it('shows voice partial transcripts as ephemeral status instead of transcript lines', () => {
+    const ctx = buildCtx([])
+    const onEvent = createGatewayEventHandler(ctx)
+
+    onEvent({ payload: { text: '私の' }, type: 'voice.partial_transcript' } as any)
+    expect(getUiState().status).toBe('voice partial: 私の')
+    expect(ctx.system.sys).not.toHaveBeenCalled()
+
+    onEvent({ payload: { text: '私の話している' }, type: 'voice.partial_transcript' } as any)
+    expect(getUiState().status).toBe('voice partial: 私の話している')
+    expect(ctx.system.sys).not.toHaveBeenCalled()
+  })
+
   it('surfaces self-improvement review summaries as a persistent system line', () => {
     const appended: Msg[] = []
     const ctx = buildCtx(appended)

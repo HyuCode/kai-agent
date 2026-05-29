@@ -352,6 +352,7 @@ export interface VoiceToggleResponse {
   details?: string
   enabled?: boolean
   record_key?: string
+  streaming_always_on?: boolean
   stt_available?: boolean
   tts?: boolean
 }
@@ -539,6 +540,7 @@ export type GatewayEvent =
     }
   | { payload?: { key?: string }; session_id?: string; type: 'notification.clear' }
   | { payload?: { state?: 'idle' | 'listening' | 'transcribing' }; session_id?: string; type: 'voice.status' }
+  | { payload?: { text?: string }; session_id?: string; type: 'voice.partial_transcript' }
   | { payload?: { no_speech_limit?: boolean; text?: string }; session_id?: string; type: 'voice.transcript' }
   | { payload: { line: string }; session_id?: string; type: 'gateway.stderr' }
   | {

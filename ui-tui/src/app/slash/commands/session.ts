@@ -262,7 +262,7 @@ export const sessionCommands: SlashCommand[] = [
           ? normalized
           : 'status'
 
-      ctx.gateway.rpc<VoiceToggleResponse>('voice.toggle', { action }).then(
+      ctx.gateway.rpc<VoiceToggleResponse>('voice.toggle', { action, session_id: ctx.sid }).then(
         ctx.guarded<VoiceToggleResponse>(r => {
           ctx.voice.setVoiceEnabled(!!r.enabled)
           ctx.voice.setVoiceTts(!!r.tts)
@@ -329,7 +329,11 @@ export const sessionCommands: SlashCommand[] = [
           if (r.enabled) {
             const tts = r.tts ? ' (TTS enabled)' : ''
             ctx.transcript.sys(`Voice mode enabled${tts}`)
-            ctx.transcript.sys(`  ${recordKeyLabel} to start/stop recording`)
+            if (r.streaming_always_on) {
+              ctx.transcript.sys('  streaming STT is listening')
+            } else {
+              ctx.transcript.sys(`  ${recordKeyLabel} to start/stop recording`)
+            }
             ctx.transcript.sys('  /voice tts  to toggle speech output')
             ctx.transcript.sys('  /voice off  to disable voice mode')
           } else {

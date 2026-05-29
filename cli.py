@@ -3586,6 +3586,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._voice_recording = False
         self._voice_processing = False
         self._voice_continuous = False
+        self._voice_streaming_session = None
         self._voice_tts_done = threading.Event()
         self._voice_tts_done.set()
 
@@ -9371,12 +9372,95 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             pass
         return True
 
+    def _streaming_stt_cfg_dict(self) -> dict:
+        """Return the ``streaming_stt`` config block if it is well-formed."""
+        try:
+            from hermes_cli.config import load_config
+
+            streaming_cfg = load_config().get("streaming_stt", {})
+            return streaming_cfg if isinstance(streaming_cfg, dict) else {}
+        except Exception:
+            return {}
+
+    def _streaming_stt_enabled(self) -> bool:
+        streaming_cfg = self._streaming_stt_cfg_dict()
+        return bool(streaming_cfg.get("enabled")) and str(
+            streaming_cfg.get("provider", "deepgram")
+        ).strip().lower() == "deepgram"
+
+    def _streaming_stt_always_on(self) -> bool:
+        return bool(self._streaming_stt_cfg_dict().get("always_on"))
+
+    def _voice_start_streaming_stt(self) -> bool:
+        """Start Deepgram streaming STT and feed final transcripts to the CLI."""
+        if getattr(self, "_voice_streaming_session", None) is not None:
+            session = self._voice_streaming_session
+            if getattr(session, "is_running", lambda: False)():
+                logger.info("CLI voice streaming STT start skipped: already running")
+                return False
+
+        from hermes_cli.streaming_stt import (
+            DeepgramStreamingSession,
+            load_deepgram_streaming_config,
+        )
+
+        def _on_partial(text: str) -> None:
+            if not text:
+                return
+            _cprint(f"\r{_DIM}voice partial: {text}{_RST}", end="")
+            if hasattr(self, "_app") and self._app:
+                self._app.invalidate()
+
+        def _on_final(text: str) -> None:
+            transcript = (text or "").strip()
+            if not transcript:
+                return
+            logger.info("CLI Deepgram final transcript received (%d chars)", len(transcript))
+            self._attached_images.clear()
+            self._pending_input.put(transcript)
+            if hasattr(self, "_app") and self._app:
+                self._app.invalidate()
+
+        def _on_status(state: str) -> None:
+            with self._voice_lock:
+                self._voice_recording = state == "listening"
+                self._voice_processing = state == "transcribing"
+            if hasattr(self, "_app") and self._app:
+                self._app.invalidate()
+
+        logger.info("CLI voice streaming STT starting: provider=deepgram")
+        session = DeepgramStreamingSession(
+            load_deepgram_streaming_config(),
+            on_partial=_on_partial,
+            on_final=_on_final,
+            on_status=_on_status,
+        )
+        session.start()
+        self._voice_streaming_session = session
+        logger.info("CLI voice streaming STT started: provider=deepgram")
+        return True
+
+    def _voice_stop_streaming_stt(self) -> None:
+        session = getattr(self, "_voice_streaming_session", None)
+        self._voice_streaming_session = None
+        if session is None:
+            return
+        logger.info("CLI voice streaming STT stopping")
+        try:
+            session.stop()
+        finally:
+            with self._voice_lock:
+                self._voice_recording = False
+                self._voice_processing = False
+            logger.info("CLI voice streaming STT stopped")
+
     def _enable_voice_mode(self):
         """Enable voice mode after checking requirements."""
         if self._voice_mode:
             _cprint(f"{_DIM}Voice mode is already enabled.{_RST}")
             return
 
+        streaming_always_on = self._streaming_stt_enabled() and self._streaming_stt_always_on()
         from tools.voice_mode import check_voice_requirements, detect_audio_environment
 
         # Environment detection -- warn and block in incompatible environments
@@ -9388,7 +9472,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             return
 
         reqs = check_voice_requirements()
-        if not reqs["available"]:
+        if not streaming_always_on and not reqs["available"]:
             _cprint(f"\n{_ACCENT}Voice mode requirements not met:{_RST}")
             for line in reqs["details"].split("\n"):
                 _cprint(f"  {_DIM}{line}{_RST}")
@@ -9427,12 +9511,21 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         # round-14 on #19835, same class as round-13).
         _ptt_display = self._voice_record_key_label()
         _cprint(f"\n{_ACCENT}Voice mode enabled{tts_status}{_RST}")
-        _cprint(f"  {_DIM}{_ptt_display} to start/stop recording{_RST}")
+        if streaming_always_on:
+            try:
+                self._voice_start_streaming_stt()
+                _cprint(f"  {_DIM}streaming STT is listening{_RST}")
+            except Exception as e:
+                logger.warning("CLI voice streaming STT failed to start from /voice on: %s", e, exc_info=True)
+                _cprint(f"  {_DIM}streaming STT failed to start: {e}{_RST}")
+        else:
+            _cprint(f"  {_DIM}{_ptt_display} to start/stop recording{_RST}")
         _cprint(f"  {_DIM}/voice tts  to toggle speech output{_RST}")
         _cprint(f"  {_DIM}/voice off  to disable voice mode{_RST}")
 
     def _disable_voice_mode(self):
         """Disable voice mode, cancel any active recording, and stop TTS."""
+        self._voice_stop_streaming_stt()
         recorder = None
         with self._voice_lock:
             if self._voice_recording and self._voice_recorder:
@@ -11128,6 +11221,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         self._voice_recording = False   # Whether currently recording
         self._voice_processing = False  # Whether STT is in progress
         self._voice_continuous = False  # Whether to auto-restart after agent responds
+        self._voice_streaming_session = None  # Deepgram streaming STT session
         self._voice_tts_done = threading.Event()  # Signals TTS playback finished
         self._voice_tts_done.set()  # Initially "done" (no TTS pending)
 

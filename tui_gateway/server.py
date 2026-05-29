@@ -9221,6 +9221,19 @@ def _(rid, params: dict) -> dict:
 
 _voice_sid_lock = threading.Lock()
 _voice_event_sid: str = ""
+_streaming_stt_lock = threading.Lock()
+_streaming_stt_session = None
+_streaming_stt_submit_lock = threading.Lock()
+_streaming_stt_submit_parts: list[str] = []
+_streaming_stt_submit_timer: threading.Timer | None = None
+_streaming_stt_submit_started_at: float | None = None
+_streaming_stt_submit_speech_final: bool = False
+_streaming_stt_submit_partial_activity_seen: bool = False
+_streaming_stt_submit_llm_wait_seen: bool = False
+_streaming_stt_pending_submit_text: str | None = None
+_streaming_stt_pending_submit_timer: threading.Timer | None = None
+_streaming_stt_pending_submit_started_at: float | None = None
+_streaming_stt_pending_submit_speech_final: bool = False
 
 
 def _voice_emit(event: str, payload: dict | None = None) -> None:
@@ -9275,6 +9288,390 @@ def _voice_record_key() -> str:
     return str(record_key) if isinstance(record_key, str) and record_key else "ctrl+b"
 
 
+def _streaming_stt_cfg_dict() -> dict:
+    """Shape-safe accessor for the ``streaming_stt:`` block in config.yaml."""
+    cfg = _load_cfg()
+    streaming_cfg = cfg.get("streaming_stt") if isinstance(cfg, dict) else None
+
+    return streaming_cfg if isinstance(streaming_cfg, dict) else {}
+
+
+def _streaming_stt_enabled() -> bool:
+    streaming_cfg = _streaming_stt_cfg_dict()
+    return bool(streaming_cfg.get("enabled")) and str(
+        streaming_cfg.get("provider", "deepgram")
+    ).strip().lower() == "deepgram"
+
+
+def _streaming_stt_always_on() -> bool:
+    streaming_cfg = _streaming_stt_cfg_dict()
+    return bool(streaming_cfg.get("always_on"))
+
+
+def _streaming_stt_submit_cfg() -> dict:
+    streaming_cfg = _streaming_stt_cfg_dict()
+    submit_cfg = streaming_cfg.get("submit")
+    submit_cfg = submit_cfg if isinstance(submit_cfg, dict) else {}
+
+    def _positive_int(name: str, default: int) -> int:
+        value = submit_cfg.get(name, default)
+        if isinstance(value, bool):
+            return default
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return default
+        return parsed if parsed >= 0 else default
+
+    joiner = submit_cfg.get("joiner", " ")
+    if not isinstance(joiner, str):
+        joiner = " "
+
+    return {
+        "debounce_ms": _positive_int("debounce_ms", 1800),
+        "llm_wait_debounce_ms": _positive_int("llm_wait_debounce_ms", 3000),
+        "commit_delay_ms": _positive_int("commit_delay_ms", 1000),
+        "min_chars": _positive_int("min_chars", 8),
+        "joiner": joiner,
+        "max_wait_ms": _positive_int("max_wait_ms", 6000),
+        "turn_detection": str(submit_cfg.get("turn_detection") or "rules").strip().lower(),
+        "require_speech_final": bool(submit_cfg.get("require_speech_final", True)),
+        "classifier": submit_cfg.get("classifier") if isinstance(submit_cfg.get("classifier"), dict) else {},
+    }
+
+
+def _classify_streaming_stt_turn(text: str, *, elapsed_ms: int, submit_cfg: dict) -> tuple[str, str]:
+    """Return (submit|wait|ignore, reason) for a buffered transcript."""
+    from hermes_cli.turn_detection import (
+        TurnDetectionConfig,
+        TurnDetectionSignals,
+        classify_streaming_stt_turn,
+    )
+    turn_detection = str(submit_cfg.get("turn_detection") or "rules").strip().lower()
+    classifier_cfg = submit_cfg.get("classifier") if isinstance(submit_cfg.get("classifier"), dict) else {}
+    if (
+        elapsed_ms < submit_cfg["max_wait_ms"]
+        and turn_detection in {"llm", "hybrid"}
+        and classifier_cfg.get("enabled")
+    ):
+        try:
+            from hermes_cli.turn_classifier import (
+                TurnClassifierConfig,
+                TurnClassifierInput,
+                classify_turn_with_llm,
+            )
+
+            timeout_ms = classifier_cfg.get("timeout_ms", 800)
+            try:
+                timeout_ms = int(timeout_ms)
+            except (TypeError, ValueError):
+                timeout_ms = 800
+            result = classify_turn_with_llm(
+                TurnClassifierConfig(
+                    enabled=True,
+                    base_url=str(classifier_cfg.get("base_url") or "http://100.94.173.74:8001/v1"),
+                    model=str(classifier_cfg.get("model") or "gemma-4-e4b"),
+                    api_key=str(classifier_cfg.get("api_key") or ""),
+                    timeout_ms=timeout_ms,
+                ),
+                TurnClassifierInput(
+                    text=text,
+                    elapsed_ms=elapsed_ms,
+                    speech_final=_streaming_stt_submit_speech_final,
+                    partial_activity_seen=_streaming_stt_submit_partial_activity_seen,
+                ),
+            )
+            if result is not None:
+                if result.action == "backchannel":
+                    return "wait", f"llm:{result.reason or 'backchannel'}"
+                return result.action, f"llm:{result.reason or result.action}"
+        except Exception as exc:
+            logger.debug("voice turn classifier failed: %s", exc, exc_info=True)
+        if turn_detection == "llm":
+            return "wait", "llm_unavailable"
+
+    return classify_streaming_stt_turn(
+        text,
+        elapsed_ms=elapsed_ms,
+        config=TurnDetectionConfig(
+            min_chars=submit_cfg["min_chars"],
+            max_wait_ms=submit_cfg["max_wait_ms"],
+            turn_detection=submit_cfg["turn_detection"],
+            require_speech_final=bool(submit_cfg.get("require_speech_final", True)),
+        ),
+        signals=TurnDetectionSignals(speech_final=_streaming_stt_submit_speech_final),
+    )
+
+
+def _commit_pending_streaming_stt_submit() -> None:
+    global _streaming_stt_pending_submit_text, _streaming_stt_pending_submit_timer, _streaming_stt_pending_submit_started_at, _streaming_stt_pending_submit_speech_final
+    with _streaming_stt_submit_lock:
+        text = _streaming_stt_pending_submit_text
+        _streaming_stt_pending_submit_text = None
+        _streaming_stt_pending_submit_timer = None
+        _streaming_stt_pending_submit_started_at = None
+        _streaming_stt_pending_submit_speech_final = False
+    if not text:
+        return
+    logger.info("voice streaming STT pending submit committed: chars=%d text=%r", len(text), text)
+    _voice_emit("voice.transcript", {"text": text})
+
+
+def _cancel_pending_streaming_stt_submit_locked() -> bool:
+    """Move an uncommitted submit back into the active buffer.
+
+    Caller must hold ``_streaming_stt_submit_lock``. This is used when a new
+    partial/final arrives during the commit delay window, meaning the speaker
+    continued and the previous probable turn should not be emitted yet.
+    """
+    global _streaming_stt_pending_submit_text, _streaming_stt_pending_submit_timer, _streaming_stt_pending_submit_started_at, _streaming_stt_pending_submit_speech_final, _streaming_stt_submit_started_at, _streaming_stt_submit_speech_final
+    if not _streaming_stt_pending_submit_text:
+        return False
+    if _streaming_stt_pending_submit_timer is not None:
+        _streaming_stt_pending_submit_timer.cancel()
+    pending_text = _streaming_stt_pending_submit_text
+    pending_started_at = _streaming_stt_pending_submit_started_at
+    pending_speech_final = _streaming_stt_pending_submit_speech_final
+    _streaming_stt_pending_submit_text = None
+    _streaming_stt_pending_submit_timer = None
+    _streaming_stt_pending_submit_started_at = None
+    _streaming_stt_pending_submit_speech_final = False
+    _streaming_stt_submit_parts.insert(0, pending_text)
+    if _streaming_stt_submit_started_at is None:
+        _streaming_stt_submit_started_at = pending_started_at or time.monotonic()
+    _streaming_stt_submit_speech_final = _streaming_stt_submit_speech_final or pending_speech_final
+    return True
+
+
+def _flush_streaming_stt_submit_buffer(*, force: bool = False) -> None:
+    global _streaming_stt_submit_timer, _streaming_stt_submit_started_at, _streaming_stt_submit_speech_final, _streaming_stt_submit_partial_activity_seen, _streaming_stt_submit_llm_wait_seen, _streaming_stt_pending_submit_text, _streaming_stt_pending_submit_timer, _streaming_stt_pending_submit_started_at, _streaming_stt_pending_submit_speech_final
+    with _streaming_stt_submit_lock:
+        parts = list(_streaming_stt_submit_parts)
+        _streaming_stt_submit_timer = None
+        started_at = _streaming_stt_submit_started_at
+
+    if not parts:
+        return
+
+    submit_cfg = _streaming_stt_submit_cfg()
+    text = submit_cfg["joiner"].join(p for p in parts if p).strip()
+    if not text:
+        with _streaming_stt_submit_lock:
+            _streaming_stt_submit_parts.clear()
+            _streaming_stt_submit_started_at = None
+            _streaming_stt_submit_speech_final = False
+            _streaming_stt_submit_partial_activity_seen = False
+            _streaming_stt_submit_llm_wait_seen = False
+        return
+
+    elapsed_ms = int((time.monotonic() - (started_at or time.monotonic())) * 1000)
+    if force:
+        elapsed_ms = max(elapsed_ms, submit_cfg["max_wait_ms"])
+    decision, reason = _classify_streaming_stt_turn(
+        text,
+        elapsed_ms=elapsed_ms,
+        submit_cfg=submit_cfg,
+    )
+
+    if decision == "ignore":
+        logger.info(
+            "voice streaming STT submit ignored: reason=%s chars=%d min_chars=%d text=%r",
+            reason,
+            len(text),
+            submit_cfg["min_chars"],
+            text,
+        )
+        with _streaming_stt_submit_lock:
+            _streaming_stt_submit_parts.clear()
+            _streaming_stt_submit_started_at = None
+            _streaming_stt_submit_speech_final = False
+            _streaming_stt_submit_partial_activity_seen = False
+            _streaming_stt_submit_llm_wait_seen = False
+        return
+
+    if decision == "wait":
+        if reason.startswith("llm:"):
+            with _streaming_stt_submit_lock:
+                _streaming_stt_submit_llm_wait_seen = True
+        delay_ms = submit_cfg["llm_wait_debounce_ms"] if _streaming_stt_submit_llm_wait_seen else submit_cfg["debounce_ms"]
+        delay = delay_ms / 1000
+        with _streaming_stt_submit_lock:
+            _streaming_stt_submit_timer = threading.Timer(delay, _flush_streaming_stt_submit_buffer)
+            _streaming_stt_submit_timer.daemon = True
+            _streaming_stt_submit_timer.start()
+        logger.info(
+            "voice streaming STT submit waiting: reason=%s elapsed_ms=%d text=%r",
+            reason,
+            elapsed_ms,
+            text,
+        )
+        return
+
+    with _streaming_stt_submit_lock:
+        buffered_speech_final = _streaming_stt_submit_speech_final
+        _streaming_stt_submit_parts.clear()
+        _streaming_stt_submit_started_at = None
+        _streaming_stt_submit_speech_final = False
+        _streaming_stt_submit_partial_activity_seen = False
+        _streaming_stt_submit_llm_wait_seen = False
+
+    logger.info(
+        "voice streaming STT submit: reason=%s parts=%d chars=%d text=%r",
+        reason,
+        len(parts),
+        len(text),
+        text,
+    )
+    commit_delay_ms = submit_cfg["commit_delay_ms"]
+    if force or commit_delay_ms <= 0:
+        _voice_emit("voice.transcript", {"text": text})
+        return
+
+    with _streaming_stt_submit_lock:
+        if _streaming_stt_pending_submit_timer is not None:
+            _streaming_stt_pending_submit_timer.cancel()
+        _streaming_stt_pending_submit_text = text
+        _streaming_stt_pending_submit_started_at = started_at or time.monotonic()
+        _streaming_stt_pending_submit_speech_final = buffered_speech_final
+        _streaming_stt_pending_submit_timer = threading.Timer(
+            commit_delay_ms / 1000,
+            _commit_pending_streaming_stt_submit,
+        )
+        _streaming_stt_pending_submit_timer.daemon = True
+        _streaming_stt_pending_submit_timer.start()
+    logger.info(
+        "voice streaming STT pending submit scheduled: delay_ms=%d chars=%d text=%r",
+        commit_delay_ms,
+        len(text),
+        text,
+    )
+
+
+def _queue_streaming_stt_final(text: str, *, speech_final: bool = False) -> None:
+    """Debounce Deepgram final snippets into one user turn."""
+    global _streaming_stt_submit_timer, _streaming_stt_submit_started_at, _streaming_stt_submit_speech_final
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return
+
+    submit_cfg = _streaming_stt_submit_cfg()
+    with _streaming_stt_submit_lock:
+        restored_pending = _cancel_pending_streaming_stt_submit_locked()
+        if not _streaming_stt_submit_parts:
+            _streaming_stt_submit_started_at = time.monotonic()
+        _streaming_stt_submit_parts.append(cleaned)
+        _streaming_stt_submit_speech_final = _streaming_stt_submit_speech_final or speech_final
+        if _streaming_stt_submit_timer is not None:
+            _streaming_stt_submit_timer.cancel()
+        delay = submit_cfg["debounce_ms"] / 1000
+        _streaming_stt_submit_timer = threading.Timer(delay, _flush_streaming_stt_submit_buffer)
+        _streaming_stt_submit_timer.daemon = True
+        _streaming_stt_submit_timer.start()
+    logger.info(
+        "voice streaming STT queued final: chars=%d speech_final=%s debounce_ms=%d text=%r",
+        len(cleaned),
+        speech_final,
+        submit_cfg["debounce_ms"],
+        cleaned,
+    )
+    if restored_pending:
+        logger.info("voice streaming STT pending submit canceled by final transcript")
+
+
+def _handle_streaming_stt_partial(text: str) -> None:
+    """Emit partial captions and treat them as speech activity for debounce."""
+    _voice_emit("voice.partial_transcript", {"text": text})
+    submit_cfg = _streaming_stt_submit_cfg()
+    with _streaming_stt_submit_lock:
+        restored_pending = _cancel_pending_streaming_stt_submit_locked()
+        if not _streaming_stt_submit_parts:
+            return
+        global _streaming_stt_submit_timer, _streaming_stt_submit_partial_activity_seen
+        _streaming_stt_submit_partial_activity_seen = True
+        if _streaming_stt_submit_timer is not None:
+            _streaming_stt_submit_timer.cancel()
+        delay_ms = submit_cfg["llm_wait_debounce_ms"] if _streaming_stt_submit_llm_wait_seen else submit_cfg["debounce_ms"]
+        delay = delay_ms / 1000
+        _streaming_stt_submit_timer = threading.Timer(delay, _flush_streaming_stt_submit_buffer)
+        _streaming_stt_submit_timer.daemon = True
+        _streaming_stt_submit_timer.start()
+    if restored_pending:
+        logger.info("voice streaming STT pending submit canceled by partial transcript")
+    logger.debug("voice streaming STT partial extended submit debounce")
+
+
+def _cancel_streaming_stt_submit_buffer(*, flush: bool = False) -> None:
+    global _streaming_stt_submit_timer, _streaming_stt_submit_started_at, _streaming_stt_submit_speech_final, _streaming_stt_submit_partial_activity_seen, _streaming_stt_submit_llm_wait_seen, _streaming_stt_pending_submit_text, _streaming_stt_pending_submit_timer, _streaming_stt_pending_submit_started_at, _streaming_stt_pending_submit_speech_final
+    with _streaming_stt_submit_lock:
+        timer = _streaming_stt_submit_timer
+        _streaming_stt_submit_timer = None
+        pending_timer = _streaming_stt_pending_submit_timer
+        pending_text = _streaming_stt_pending_submit_text
+        _streaming_stt_pending_submit_text = None
+        _streaming_stt_pending_submit_timer = None
+        _streaming_stt_pending_submit_started_at = None
+        _streaming_stt_pending_submit_speech_final = False
+        if timer is not None:
+            timer.cancel()
+        if pending_timer is not None:
+            pending_timer.cancel()
+    if flush:
+        if pending_text:
+            _voice_emit("voice.transcript", {"text": pending_text})
+        _flush_streaming_stt_submit_buffer(force=True)
+    else:
+        with _streaming_stt_submit_lock:
+            _streaming_stt_submit_parts.clear()
+            _streaming_stt_submit_started_at = None
+            _streaming_stt_submit_speech_final = False
+            _streaming_stt_submit_partial_activity_seen = False
+            _streaming_stt_submit_llm_wait_seen = False
+
+
+def _queue_streaming_stt_event(event) -> None:
+    """Queue a provider transcript event without inspecting transcript content."""
+    _queue_streaming_stt_final(event.text, speech_final=bool(getattr(event, "speech_final", False)))
+
+
+def _start_streaming_stt() -> str:
+    """Start the configured streaming STT session if it is not already active."""
+    global _streaming_stt_session
+    with _streaming_stt_lock:
+        if _streaming_stt_session is not None and _streaming_stt_session.is_running():
+            logger.info("voice streaming STT start skipped: already running")
+            return "busy"
+
+    logger.info("voice streaming STT starting: provider=deepgram")
+    from hermes_cli.streaming_stt import (
+        DeepgramStreamingSession,
+        load_deepgram_streaming_config,
+    )
+
+    session = DeepgramStreamingSession(
+        load_deepgram_streaming_config(),
+        on_partial=_handle_streaming_stt_partial,
+        on_event=_queue_streaming_stt_event,
+        on_status=lambda s: _voice_emit("voice.status", {"state": s}),
+    )
+    session.start()
+    with _streaming_stt_lock:
+        _streaming_stt_session = session
+    logger.info("voice streaming STT started: provider=deepgram")
+    return "recording"
+
+
+def _stop_streaming_stt() -> None:
+    global _streaming_stt_session
+    with _streaming_stt_lock:
+        session = _streaming_stt_session
+        _streaming_stt_session = None
+    if session is not None:
+        logger.info("voice streaming STT stopping")
+        _cancel_streaming_stt_submit_buffer(flush=True)
+        session.stop()
+        logger.info("voice streaming STT stopped")
+
+
 @method("voice.toggle")
 def _(rid, params: dict) -> dict:
     """CLI parity for the ``/voice`` slash command.
@@ -9283,9 +9680,10 @@ def _(rid, params: dict) -> dict:
 
     * ``status`` — report mode + TTS flags (default when action is unknown).
     * ``on`` / ``off`` — flip voice *mode* (the umbrella bit). Turning it
-      off also tears down any active continuous recording loop. Does NOT
-      start recording on its own; recording is driven by ``voice.record``
-      (Ctrl+B) after mode is on, matching cli.py's enable/Ctrl+B split.
+      off also tears down any active continuous recording loop. When
+      ``streaming_stt.always_on`` is enabled, turning it on also starts the
+      Deepgram streaming session; otherwise recording is driven by
+      ``voice.record`` (Ctrl+B) after mode is on, matching cli.py's split.
     * ``tts`` — toggle speech-output of agent replies. Requires mode on
       (mirrors CLI's _toggle_voice_tts guard).
     """
@@ -9302,6 +9700,8 @@ def _(rid, params: dict) -> dict:
         payload: dict = {
             "enabled": _voice_mode_enabled(),
             "record_key": _voice_record_key(),
+            "streaming_always_on": _streaming_stt_enabled()
+            and _streaming_stt_always_on(),
             "tts": _voice_tts_enabled(),
         }
         try:
@@ -9321,6 +9721,19 @@ def _(rid, params: dict) -> dict:
 
     if action in {"on", "off"}:
         enabled = action == "on"
+        with _voice_sid_lock:
+            global _voice_event_sid
+            _voice_event_sid = params.get("session_id") or _voice_event_sid
+        streaming_enabled = _streaming_stt_enabled()
+        streaming_always_on = streaming_enabled and _streaming_stt_always_on()
+        logger.info(
+            "voice.toggle action=%s enabled=%s session_id=%s streaming_enabled=%s always_on=%s",
+            action,
+            enabled,
+            _voice_event_sid or "",
+            streaming_enabled,
+            streaming_always_on,
+        )
         # Runtime-only flag (CLI parity) — no _write_config_key, so the
         # next TUI launch starts with voice OFF instead of auto-REC from a
         # persisted stale toggle.
@@ -9330,6 +9743,8 @@ def _(rid, params: dict) -> dict:
             # Disabling the mode must tear the continuous loop down; the
             # loop holds the microphone and would otherwise keep running.
             try:
+                _stop_streaming_stt()
+
                 from hermes_cli.voice import stop_continuous
 
                 stop_continuous()
@@ -9340,12 +9755,19 @@ def _(rid, params: dict) -> dict:
 
             # Clear TTS so it can be toggled independently after voice is off.
             os.environ["HERMES_VOICE_TTS"] = "0"
+        elif streaming_always_on:
+            try:
+                _start_streaming_stt()
+            except Exception as e:
+                logger.warning("voice streaming STT failed to start from /voice on: %s", e, exc_info=True)
+                return _err(rid, 5025, str(e))
 
         return _ok(
             rid,
             {
                 "enabled": enabled,
                 "record_key": _voice_record_key(),
+                "streaming_always_on": streaming_always_on,
                 "tts": _voice_tts_enabled(),
             },
         )
@@ -9365,6 +9787,8 @@ def _(rid, params: dict) -> dict:
             {
                 "enabled": True,
                 "record_key": _voice_record_key(),
+                "streaming_always_on": _streaming_stt_enabled()
+                and _streaming_stt_always_on(),
                 "tts": new_value,
             },
         )
@@ -9395,6 +9819,12 @@ def _(rid, params: dict) -> dict:
             with _voice_sid_lock:
                 global _voice_event_sid
                 _voice_event_sid = params.get("session_id") or _voice_event_sid
+
+            if _streaming_stt_enabled():
+                status = _start_streaming_stt()
+                if status == "busy":
+                    return _ok(rid, {"status": "busy"})
+                return _ok(rid, {"status": "recording", "streaming": True})
 
             from hermes_cli.voice import start_continuous
 
@@ -9436,6 +9866,10 @@ def _(rid, params: dict) -> dict:
         # action == "stop"
         with _voice_sid_lock:
             _voice_event_sid = params.get("session_id") or _voice_event_sid
+
+        if _streaming_stt_enabled():
+            _stop_streaming_stt()
+            return _ok(rid, {"status": "stopped", "streaming": True})
 
         from hermes_cli.voice import stop_continuous
 

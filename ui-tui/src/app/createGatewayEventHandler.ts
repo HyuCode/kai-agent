@@ -565,6 +565,17 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         } else {
           setVoiceRecording(false)
           setVoiceProcessing(false)
+          setStatus(statusFromBusy())
+        }
+
+        return
+      }
+
+      case 'voice.partial_transcript': {
+        const text = String(ev.payload?.text ?? '').trim()
+
+        if (text) {
+          setStatus(`voice partial: ${text}`)
         }
 
         return
@@ -587,6 +598,8 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         if (!text) {
           return
         }
+
+        setStatus(statusFromBusy())
 
         // CLI parity: _pending_input.put(transcript) unconditionally feeds
         // the transcript to the agent as its next turn — draft handling

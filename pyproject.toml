@@ -155,6 +155,11 @@ voice = [
   "sounddevice==0.5.5",
   "numpy==2.4.3",
 ]
+deepgram-stt = [
+  "websockets==15.0.1",
+  "sounddevice==0.5.5",
+  "numpy==2.4.3",
+]
 pty = [
   # Kept as a no-op back-compat alias — `ptyprocess` and `pywinpty` are now
   # in the main `dependencies` list (with the same platform markers), so
