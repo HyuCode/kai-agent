@@ -424,19 +424,9 @@ _OVERLAY_HTML = """<!doctype html>
       opacity: 1;
       transform: translateY(0);
     }
-    #caption.partial {
-      color: var(--caption-partial);
-      font-weight: 720;
-      font-style: italic;
-    }
-    #caption.final::after {
-      content: "";
-      display: block;
-      width: min(220px, 28vw);
-      height: 3px;
-      margin: 10px auto 0;
-      background: linear-gradient(90deg, transparent, var(--accent), transparent);
-      opacity: 0.8;
+    #caption.partial,
+    #caption.final {
+      color: var(--caption-final);
     }
   </style>
 </head>

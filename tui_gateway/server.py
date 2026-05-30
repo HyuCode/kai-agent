@@ -5741,6 +5741,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
         if not isinstance(session.get("inflight_turn"), dict):
             _start_inflight_turn(session, text)
     agent = session["agent"]
+    _reset_assistant_overlay_caption()
     _emit("message.start", sid)
 
     def run():
@@ -5864,6 +5865,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             def _stream(delta):
                 with session["history_lock"]:
                     _append_inflight_delta(session, delta)
+                _queue_assistant_overlay_delta(delta)
                 payload = {"text": delta}
                 if streamer and (r := streamer.feed(delta)) is not None:
                     payload["rendered"] = r
@@ -5952,6 +5954,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             rendered = render_message(raw, cols)
             if rendered:
                 payload["rendered"] = rendered
+            _commit_assistant_overlay_caption(raw)
             with session["history_lock"]:
                 _clear_inflight_turn(session)
             _emit("message.complete", sid, payload)
@@ -9234,6 +9237,9 @@ _streaming_stt_pending_submit_text: str | None = None
 _streaming_stt_pending_submit_timer: threading.Timer | None = None
 _streaming_stt_pending_submit_started_at: float | None = None
 _streaming_stt_pending_submit_speech_final: bool = False
+_assistant_overlay_lock = threading.Lock()
+_assistant_overlay_text: str = ""
+_assistant_overlay_timer: threading.Timer | None = None
 
 
 def _voice_emit(event: str, payload: dict | None = None) -> None:
@@ -9338,6 +9344,49 @@ def _ensure_live_overlay_server() -> str | None:
 def _emit_voice_transcript(text: str) -> None:
     _publish_live_overlay_caption(text, final=True)
     _voice_emit("voice.transcript", {"text": text})
+
+
+def _reset_assistant_overlay_caption() -> None:
+    global _assistant_overlay_text, _assistant_overlay_timer
+    with _assistant_overlay_lock:
+        if _assistant_overlay_timer is not None:
+            _assistant_overlay_timer.cancel()
+        _assistant_overlay_text = ""
+        _assistant_overlay_timer = None
+
+
+def _flush_assistant_overlay_caption(*, final: bool = False) -> None:
+    global _assistant_overlay_timer
+    with _assistant_overlay_lock:
+        text = _assistant_overlay_text.strip()
+        _assistant_overlay_timer = None
+    if text:
+        _publish_live_overlay_caption(text, final=final)
+
+
+def _queue_assistant_overlay_delta(delta: str) -> None:
+    global _assistant_overlay_text, _assistant_overlay_timer
+    if not isinstance(delta, str) or not delta:
+        return
+    with _assistant_overlay_lock:
+        _assistant_overlay_text = f"{_assistant_overlay_text}{delta}"
+        if _assistant_overlay_timer is not None:
+            return
+        _assistant_overlay_timer = threading.Timer(0.18, _flush_assistant_overlay_caption)
+        _assistant_overlay_timer.daemon = True
+        _assistant_overlay_timer.start()
+
+
+def _commit_assistant_overlay_caption(text: str) -> None:
+    global _assistant_overlay_text, _assistant_overlay_timer
+    cleaned = str(text or "").strip()
+    with _assistant_overlay_lock:
+        if _assistant_overlay_timer is not None:
+            _assistant_overlay_timer.cancel()
+        _assistant_overlay_timer = None
+        _assistant_overlay_text = cleaned
+    if cleaned:
+        _publish_live_overlay_caption(cleaned, final=True)
 
 
 def _streaming_stt_submit_cfg() -> dict:

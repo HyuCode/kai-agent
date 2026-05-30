@@ -584,6 +584,7 @@ stream_assistant:
 - [x] Browser Source 用 HTML/CSS を追加する。
 - [x] Deepgram partial transcript を caption に反映する。
 - [x] final transcript で partial caption を置き換える。
+- [x] agent 返答の streaming / final caption を overlay に反映する。
 - [ ] OBS でローカルテストする。
 - [ ] `overlay_*` tools を追加する。
 - [ ] Hermes tool call から caption と guide panel を表示する。

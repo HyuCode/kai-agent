@@ -325,6 +325,42 @@ def test_tui_streaming_stt_publishes_partial_and_final_overlay_captions(monkeypa
     server._cancel_streaming_stt_submit_buffer(flush=False)
 
 
+def test_tui_assistant_stream_publishes_overlay_caption(monkeypatch):
+    from tui_gateway import server
+
+    captions = []
+
+    class FakeTimer:
+        def __init__(self, _delay, callback):
+            self.callback = callback
+            self.daemon = False
+
+        def start(self):
+            return None
+
+        def cancel(self):
+            return None
+
+    monkeypatch.setattr(server.threading, "Timer", FakeTimer)
+    monkeypatch.setattr(
+        server,
+        "_publish_live_overlay_caption",
+        lambda text, *, final: captions.append((text, final)),
+    )
+
+    server._reset_assistant_overlay_caption()
+    server._queue_assistant_overlay_delta("まずは")
+    server._queue_assistant_overlay_delta("右へ行きます。")
+    server._flush_assistant_overlay_caption()
+    server._commit_assistant_overlay_caption("まずは右へ行きます。")
+
+    assert captions == [
+        ("まずは右へ行きます。", False),
+        ("まずは右へ行きます。", True),
+    ]
+    server._reset_assistant_overlay_caption()
+
+
 def test_tui_streaming_stt_baseline_does_not_parse_explicit_hold(monkeypatch):
     from tui_gateway import server
 
