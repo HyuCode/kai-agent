@@ -1622,7 +1622,7 @@ DEFAULT_CONFIG = {
     # limit (OpenAI 4096, xAI 15000, MiniMax 10000, ElevenLabs 5k-40k model-aware,
     # Gemini 32000, Edge 5000, Mistral 4000, NeuTTS/KittenTTS 2000).
     "tts": {
-        "provider": "edge",  # "edge" (free) | "elevenlabs" (premium) | "openai" | "xai" | "minimax" | "mistral" | "gemini" | "neutts" (local) | "kittentts" (local) | "piper" (local)
+        "provider": "edge",  # "edge" (free) | "elevenlabs" (premium) | "openai" | "xai" | "minimax" | "mistral" | "gemini" | "fish_audio" | "neutts" (local) | "kittentts" (local) | "piper" (local)
         "edge": {
             "voice": "en-US-AriaNeural",
             # Popular: AriaNeural, JennyNeural, AndrewNeural, BrianNeural, SoniaNeural
@@ -1658,6 +1658,22 @@ DEFAULT_CONFIG = {
         "mistral": {
             "model": "voxtral-mini-tts-2603",
             "voice_id": "c69964a6-ab8b-4f8a-9465-ec0925096ec8",  # Paul - Neutral
+        },
+        "fish_audio": {
+            "model": "s2-pro",
+            "reference_id": "",  # Fish Audio voice model ID
+            "base_url": "https://api.fish.audio/v1/tts",
+            "format": "mp3",
+            "sample_rate": 44100,
+            "mp3_bitrate": 128,
+            "latency": "normal",  # low | balanced | normal
+            "temperature": 0.7,
+            "top_p": 0.7,
+            "speed": 1.0,
+            "volume": 0.0,
+            "normalize": True,
+            "normalize_loudness": True,
+            "timeout_seconds": 60,
         },
         "neutts": {
             "ref_audio": "",  # Path to reference voice audio (empty = bundled default)
@@ -3190,6 +3206,13 @@ OPTIONAL_ENV_VARS = {
         "prompt": "ElevenLabs API key",
         "url": "https://elevenlabs.io/",
         "tools": ["elevenlabs_tts", "voice_transcription"],
+        "password": True,
+        "category": "tool",
+    },
+    "FISH_AUDIO_API_KEY": {
+        "description": "Fish Audio API key for expressive text-to-speech voices",
+        "prompt": "Fish Audio API key",
+        "url": "https://fish.audio/",
         "password": True,
         "category": "tool",
     },

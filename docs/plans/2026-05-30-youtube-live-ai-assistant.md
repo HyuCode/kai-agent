@@ -323,32 +323,33 @@ TUI の debug line に出す。配信中は常に非表示にする。
 
 配信用アシスタントの主音声には Fish Audio を使う。
 
-Hermes には `tools/tts_tool.py` に組み込み TTS provider があるが、Fish Audio は現時点で
-組み込みではない。ただし既存の TTS 拡張 surface に自然に追加できる。
+Fish Audio は `tools/tts_tool.py` の組み込み TTS provider として追加する。
+Hermes の既存 `text_to_speech` tool、TUI の `/voice tts`、OBS 字幕連携の
+assistant caption path から同じ provider を利用できる。
 
 - `tts.providers.<name>: type: command`: 単純な shell/CLI 連携向け。
 - `PluginContext.register_tts_provider()`: Python SDK/API 連携向け。
 
-ライブ配信用では、command provider より Python plugin を優先する。Fish Audio は
-streaming audio や voice/model metadata を扱えるため、単発の shell command よりも
-コードで扱う方が拡張しやすい。
+初期実装では Python plugin ではなく、組み込み REST provider として実装する。
+理由は `text_to_speech` の dispatch、provider-specific max length、Telegram/OBS/TUI の
+既存音声経路にそのまま乗せやすいため。将来 WebSocket streaming TTS が必要になったら
+plugin か専用 streaming interface を追加する。
 
 責務:
 
 - Fish Audio TTS でアシスタント音声を生成する。
-- 設定された voice / `reference_id` に対応する。
-- `s1`、`speech-1.6`、またはより新しい Fish Audio model name を設定で使えるようにする。
+- 設定された voice model `reference_id` に対応する。
+- Fish Audio の `model` ヘッダーを設定で切り替えられるようにする。初期値は `s2-pro`。
 - 汎用再生用に `mp3`、低遅延や voice-message delivery 用に必要なら `opus` に対応する。
-- 再生経路が chunk を直接消費できる場合は streaming output を優先する。
 - Hermes や platform が完全な音声ファイルを期待する場合は file output に fallback する。
 
 設定例:
 
 ```yaml
 tts:
-  provider: fishaudio
-  fishaudio:
-    model: s1
+  provider: fish_audio
+  fish_audio:
+    model: s2-pro
     reference_id: ""
     format: mp3
     latency: balanced
@@ -356,22 +357,24 @@ tts:
     chunk_length: 200
 ```
 
-実装案:
+実装メモ:
 
-- `plugins/tts/fishaudio/`
-  - `plugin.yaml`
-  - `__init__.py`
-  - `agent.tts_provider.TTSProvider` を継承した provider class
-  - `synthesize()` で完全な音声を `output_path` に書き込む。
-  - 必要に応じて、音声 chunk を返す `stream()` を実装する。
+- `tools/tts_tool.py`
+  - `_generate_fish_audio_tts()` を追加。
+  - `FISH_AUDIO_API_KEY` を `~/.hermes/.env` から読む。
+  - `reference_id` は `tts.fish_audio.reference_id` を使う。
+  - `fish`、`fishaudio`、`fish-audio` は `fish_audio` に正規化する。
+- `hermes_cli/config.py`
+  - `tts.fish_audio` の default config を追加。
+  - `OPTIONAL_ENV_VARS` に `FISH_AUDIO_API_KEY` を追加。
 - 環境変数:
-  - `FISH_API_KEY`
+  - `FISH_AUDIO_API_KEY`
 
 参考:
 
-- https://docs.fish.audio/docs/core-features/text-to-speech
-- https://docs.fish.audio/api-reference/introduction
-- https://api.fish.audio/openapi.json
+- https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech.md
+- https://docs.fish.audio/api-reference/introduction.md
+- https://docs.fish.audio/api-reference/openapi.json
 
 ### 3. YouTube Live Chat Ingestion
 
@@ -536,7 +539,7 @@ stream_assistant:
 最初の有用な MVP では、YouTube platform integration を完全実装する必要はない。
 
 1. OpenAI-compatible なローカルまたはクラウドモデルで Hermes を動かす。
-2. アシスタント音声には Fish Audio TTS を使う。Fish Audio plugin 実装中は、既存の Hermes TTS を fallback として使う。
+2. アシスタント音声には Hermes 組み込みの Fish Audio TTS provider を使う。未設定時は既存の Hermes TTS を fallback として使う。
 3. まず既存 Hermes voice mode で基本的な push-to-talk を試し、その後 Deepgram streaming STT を追加して、ライブ字幕と低遅延 final transcript に対応する。
 4. 小さな外部 YouTube chat bridge を作る。
    - live chat message を取得する。
@@ -599,17 +602,17 @@ stream_assistant:
 
 ### Phase 3: Fish Audio TTS Provider
 
-- Fish Audio TTS plugin を追加する。
-- 設定された `reference_id`、model、output format、latency mode に対応する。
-- `synthesize()` で完全な音声ファイルを生成する。
-- `stream()` をすぐ実装するか、overlay/voice loop が安定してから実装するか評価する。
+- [x] Fish Audio TTS provider を組み込み `text_to_speech` に追加する。
+- [x] 設定された `reference_id`、model、output format、latency mode に対応する。
+- [x] 完全な音声ファイルを生成する。
+- [ ] Fish Audio WebSocket streaming を TUI の assistant voice loop に接続するか評価する。
 
 検証:
 
 - Hermes の `text_to_speech` から Fish Audio 音声を生成できる。
 - 生成音声が配信用 audio path で再生される。
 - 長い text は chunk するか overlay に回し、長すぎる独白にしない。
-- `FISH_API_KEY` がない場合に分かりやすい setup error を出す。
+- `FISH_AUDIO_API_KEY` がない場合に分かりやすい setup error を出す。
 
 ### Phase 4: Stream Persona Skill
 
