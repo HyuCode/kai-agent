@@ -507,11 +507,9 @@ _OVERLAY_HTML = """<!doctype html>
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
     }
     .text {
-      display: -webkit-box;
-      max-height: 2.6em;
+      display: block;
       overflow: hidden;
-      -webkit-box-orient: vertical;
-      -webkit-line-clamp: 2;
+      overflow-wrap: anywhere;
     }
     @keyframes thinkingDots {
       0% { content: ""; }
@@ -574,6 +572,40 @@ _OVERLAY_HTML = """<!doctype html>
       textEl.textContent = text;
       const thinking = text === '考え中' ? ' thinking' : '';
       box.className = 'captionBox ' + speaker + (text ? ' visible ' + (item.kind || 'partial') + thinking : '');
+      fitCaption(box);
+    }
+
+    function fitCaption(box) {
+      const textEl = box.querySelector('.text');
+      const labelEl = box.querySelector('.label');
+      if (!textEl || !labelEl) return;
+      if (!textEl.textContent) {
+        box.style.fontSize = '';
+        return;
+      }
+
+      box.style.fontSize = '';
+      const baseSize = parseFloat(window.getComputedStyle(box).fontSize) || 24;
+      const minSize = 13;
+      const step = 1;
+      const boxStyle = window.getComputedStyle(box);
+      const verticalPadding =
+        parseFloat(boxStyle.paddingTop || '0') +
+        parseFloat(boxStyle.paddingBottom || '0');
+      const availableHeight = Math.max(
+        18,
+        box.clientHeight - verticalPadding - labelEl.offsetHeight - 5
+      );
+
+      let size = baseSize;
+      while (size > minSize) {
+        box.style.fontSize = size + 'px';
+        if (textEl.scrollHeight <= availableHeight && textEl.scrollWidth <= textEl.clientWidth + 1) {
+          return;
+        }
+        size -= step;
+      }
+      box.style.fontSize = minSize + 'px';
     }
 
     function expireLoop() {
@@ -583,11 +615,16 @@ _OVERLAY_HTML = """<!doctype html>
           const box = boxes[speaker];
           box.querySelector('.text').textContent = '';
           box.className = 'captionBox ' + speaker;
+          box.style.fontSize = '';
           expiresAt[speaker] = 0;
         }
       }
       requestAnimationFrame(expireLoop);
     }
+
+    window.addEventListener('resize', () => {
+      for (const speaker of Object.keys(boxes)) fitCaption(boxes[speaker]);
+    });
 
     function startEvents() {
       if (!window.EventSource) return false;
