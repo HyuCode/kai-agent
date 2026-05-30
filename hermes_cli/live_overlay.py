@@ -427,16 +427,17 @@ _OVERLAY_HTML = """<!doctype html>
       font-family: "Hiragino Sans", "Yu Gothic", "Noto Sans JP", sans-serif;
     }
     body {
-      display: grid;
-      align-items: end;
-      padding: 0 4vw 6vh;
+      position: relative;
     }
     #captions {
+      position: fixed;
+      left: 4vw;
+      right: 4vw;
+      bottom: 4.5vh;
       display: grid;
       grid-template-columns: 1fr;
       gap: 10px;
-      width: 100%;
-      align-self: end;
+      width: auto;
     }
     .lane {
       display: flex;
@@ -449,11 +450,11 @@ _OVERLAY_HTML = """<!doctype html>
       justify-content: flex-end;
     }
     .captionBox {
-      width: min(860px, 76vw);
+      width: min(1180px, 88vw);
       min-height: 2.8em;
       padding: 12px 16px 14px;
-      opacity: 0;
-      transform: translateY(14px);
+      opacity: 1;
+      transform: translateY(0);
       border: 1px solid var(--box-border);
       border-radius: 8px;
       background: linear-gradient(180deg, rgba(12, 20, 28, 0.68), var(--box-bg));
@@ -468,7 +469,7 @@ _OVERLAY_HTML = """<!doctype html>
         0 2px 2px var(--shadow),
         0 0 14px rgba(0, 0, 0, 0.64),
         0 0 3px rgba(0, 0, 0, 0.95);
-      transition: opacity 120ms ease, transform 160ms ease;
+      transition: background-color 120ms ease, border-color 120ms ease;
     }
     .captionBox.visible {
       opacity: 1;
@@ -481,6 +482,11 @@ _OVERLAY_HTML = """<!doctype html>
     .captionBox.assistant {
       text-align: right;
       border-right: 5px solid var(--assistant-accent);
+    }
+    .captionBox:not(.visible) {
+      background: rgba(8, 13, 18, 0.32);
+      border-color: rgba(245, 251, 255, 0.12);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
     }
     .captionBox.thinking .text::after {
       content: "";
@@ -502,6 +508,7 @@ _OVERLAY_HTML = """<!doctype html>
     }
     .text {
       display: block;
+      min-height: 1.3em;
     }
     @keyframes thinkingDots {
       0% { content: ""; }
@@ -510,8 +517,10 @@ _OVERLAY_HTML = """<!doctype html>
       75%, 100% { content: "..."; }
     }
     @media (max-width: 780px) {
-      body {
-        padding: 0 3vw 4vh;
+      #captions {
+        left: 3vw;
+        right: 3vw;
+        bottom: 4vh;
       }
       .captionBox {
         width: 100%;
