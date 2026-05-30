@@ -431,9 +431,9 @@ _OVERLAY_HTML = """<!doctype html>
     }
     #captions {
       position: fixed;
-      left: 4vw;
-      right: 4vw;
-      bottom: 4.5vh;
+      left: 2vw;
+      right: 2vw;
+      bottom: 3.5vh;
       display: grid;
       grid-template-columns: 1fr;
       gap: 10px;
@@ -450,8 +450,8 @@ _OVERLAY_HTML = """<!doctype html>
       justify-content: flex-end;
     }
     .captionBox {
-      width: min(1180px, 88vw);
-      min-height: 2.8em;
+      width: min(1560px, 96vw);
+      height: 96px;
       padding: 12px 16px 14px;
       opacity: 1;
       transform: translateY(0);
@@ -507,8 +507,11 @@ _OVERLAY_HTML = """<!doctype html>
       text-shadow: 0 1px 2px rgba(0, 0, 0, 0.75);
     }
     .text {
-      display: block;
-      min-height: 1.3em;
+      display: -webkit-box;
+      max-height: 2.6em;
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
     }
     @keyframes thinkingDots {
       0% { content: ""; }
@@ -524,6 +527,7 @@ _OVERLAY_HTML = """<!doctype html>
       }
       .captionBox {
         width: 100%;
+        height: 92px;
       }
       .captionBox.assistant {
         text-align: left;
