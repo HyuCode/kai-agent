@@ -5781,6 +5781,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
 
                     streaming_tts_worker = FishAudioStreamingTTSWorker()
                     streaming_tts_worker.start()
+                    _set_active_streaming_tts_worker(streaming_tts_worker)
                     logger.info("voice Fish Audio streaming TTS worker started")
                 except Exception as exc:
                     streaming_tts_worker = None
@@ -6099,6 +6100,7 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                     streaming_tts_worker.cancel()
                 except Exception:
                     pass
+                _clear_active_streaming_tts_worker(streaming_tts_worker)
             trace = traceback.format_exc()
             try:
                 os.makedirs(os.path.dirname(_CRASH_LOG), exist_ok=True)
@@ -9266,6 +9268,8 @@ _streaming_stt_pending_submit_text: str | None = None
 _streaming_stt_pending_submit_timer: threading.Timer | None = None
 _streaming_stt_pending_submit_started_at: float | None = None
 _streaming_stt_pending_submit_speech_final: bool = False
+_streaming_tts_worker_lock = threading.Lock()
+_streaming_tts_worker: Any | None = None
 _assistant_overlay_lock = threading.Lock()
 _assistant_overlay_text: str = ""
 _assistant_overlay_timer: threading.Timer | None = None
@@ -9313,6 +9317,42 @@ def _fish_audio_streaming_tts_enabled() -> bool:
     return bool(fish_cfg.get("streaming_enabled"))
 
 
+def _set_active_streaming_tts_worker(worker: Any | None) -> None:
+    global _streaming_tts_worker
+    previous = None
+    with _streaming_tts_worker_lock:
+        if _streaming_tts_worker is not worker:
+            previous = _streaming_tts_worker
+        _streaming_tts_worker = worker
+    if previous is not None:
+        try:
+            previous.cancel()
+        except Exception:
+            logger.debug("voice Fish Audio previous streaming TTS cancel failed", exc_info=True)
+
+
+def _clear_active_streaming_tts_worker(worker: Any) -> None:
+    global _streaming_tts_worker
+    with _streaming_tts_worker_lock:
+        if _streaming_tts_worker is worker:
+            _streaming_tts_worker = None
+
+
+def _cancel_active_streaming_tts_worker(reason: str) -> bool:
+    global _streaming_tts_worker
+    with _streaming_tts_worker_lock:
+        worker = _streaming_tts_worker
+        _streaming_tts_worker = None
+    if worker is None:
+        return False
+    try:
+        worker.cancel()
+        logger.info("voice Fish Audio streaming TTS canceled: reason=%s", reason)
+    except Exception:
+        logger.debug("voice Fish Audio streaming TTS cancel failed", exc_info=True)
+    return True
+
+
 def _log_streaming_tts_worker_result(worker: Any) -> None:
     try:
         config = getattr(worker, "config", None)
@@ -9342,6 +9382,8 @@ def _log_streaming_tts_worker_result(worker: Any) -> None:
             _publish_live_overlay_caption(caption, final=True, speaker="assistant")
     except Exception as exc:
         logger.debug("voice Fish Audio streaming TTS result logging failed: %s", exc, exc_info=True)
+    finally:
+        _clear_active_streaming_tts_worker(worker)
 
 
 def _voice_cfg_dict() -> dict:
@@ -9742,6 +9784,7 @@ def _queue_streaming_stt_final(text: str, *, speech_final: bool = False) -> None
     cleaned = (text or "").strip()
     if not cleaned:
         return
+    _cancel_active_streaming_tts_worker("stt_final")
 
     submit_cfg = _streaming_stt_submit_cfg()
     with _streaming_stt_submit_lock:
@@ -9775,6 +9818,9 @@ def _queue_streaming_stt_final(text: str, *, speech_final: bool = False) -> None
 
 def _handle_streaming_stt_partial(text: str) -> None:
     """Emit partial captions and treat them as speech activity for debounce."""
+    cleaned = (text or "").strip()
+    if cleaned:
+        _cancel_active_streaming_tts_worker("stt_partial")
     _voice_emit("voice.partial_transcript", {"text": text})
     submit_cfg = _streaming_stt_submit_cfg()
     caption_text = ""
@@ -9866,6 +9912,7 @@ def _start_streaming_stt() -> str:
 
 def _stop_streaming_stt() -> None:
     global _streaming_stt_session
+    _cancel_active_streaming_tts_worker("voice_stop")
     with _streaming_stt_lock:
         session = _streaming_stt_session
         _streaming_stt_session = None

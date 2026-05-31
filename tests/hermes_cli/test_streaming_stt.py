@@ -376,6 +376,80 @@ def test_tui_streaming_stt_partial_caption_includes_pending_submit(monkeypatch):
     server._cancel_streaming_stt_submit_buffer(flush=False)
 
 
+def test_tui_streaming_stt_partial_cancels_active_streaming_tts(monkeypatch):
+    from tui_gateway import server
+
+    class FakeWorker:
+        def __init__(self):
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+
+    worker = FakeWorker()
+    monkeypatch.setattr(
+        server,
+        "_load_cfg",
+        lambda: {
+            "streaming_stt": {
+                "enabled": True,
+                "provider": "deepgram",
+                "submit": {"debounce_ms": 999999, "min_chars": 8, "joiner": " "},
+            },
+            "live_overlay": {"enabled": True},
+        },
+    )
+    monkeypatch.setattr(server, "_voice_emit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(server, "_publish_live_overlay_caption", lambda *_args, **_kwargs: None)
+
+    server._set_active_streaming_tts_worker(worker)
+    try:
+        server._handle_streaming_stt_partial("割り込みます")
+
+        assert worker.cancelled is True
+        assert server._cancel_active_streaming_tts_worker("cleanup") is False
+    finally:
+        server._set_active_streaming_tts_worker(None)
+        server._cancel_streaming_stt_submit_buffer(flush=False)
+
+
+def test_tui_streaming_stt_final_cancels_active_streaming_tts(monkeypatch):
+    from tui_gateway import server
+
+    class FakeWorker:
+        def __init__(self):
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+
+    worker = FakeWorker()
+    monkeypatch.setattr(
+        server,
+        "_load_cfg",
+        lambda: {
+            "streaming_stt": {
+                "enabled": True,
+                "provider": "deepgram",
+                "submit": {"debounce_ms": 999999, "min_chars": 8, "joiner": " "},
+            },
+            "live_overlay": {"enabled": True},
+        },
+    )
+    monkeypatch.setattr(server, "_voice_emit", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(server, "_publish_live_overlay_caption", lambda *_args, **_kwargs: None)
+
+    server._set_active_streaming_tts_worker(worker)
+    try:
+        server._queue_streaming_stt_final("話し始めました。")
+
+        assert worker.cancelled is True
+        assert server._cancel_active_streaming_tts_worker("cleanup") is False
+    finally:
+        server._set_active_streaming_tts_worker(None)
+        server._cancel_streaming_stt_submit_buffer(flush=False)
+
+
 def test_tui_assistant_stream_publishes_overlay_caption(monkeypatch):
     from tui_gateway import server
 
