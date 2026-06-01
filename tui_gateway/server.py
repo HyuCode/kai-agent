@@ -9338,6 +9338,36 @@ def _clear_active_streaming_tts_worker(worker: Any) -> None:
             _streaming_tts_worker = None
 
 
+def _interrupt_voice_session_turn(reason: str) -> bool:
+    with _voice_sid_lock:
+        sid = _voice_event_sid
+    if not sid:
+        return False
+    session = _sessions.get(sid)
+    if not isinstance(session, dict):
+        return False
+    with session.get("history_lock", threading.Lock()):
+        running = bool(session.get("running"))
+    if not running:
+        return False
+    agent = session.get("agent")
+    try:
+        if hasattr(agent, "interrupt"):
+            agent.interrupt()
+        _clear_pending(sid)
+        try:
+            from tools.approval import resolve_gateway_approval
+
+            resolve_gateway_approval(session.get("session_key") or sid, "deny", resolve_all=True)
+        except Exception:
+            pass
+        logger.info("voice session turn interrupted: reason=%s sid=%s", reason, sid)
+        return True
+    except Exception:
+        logger.debug("voice session turn interrupt failed: reason=%s sid=%s", reason, sid, exc_info=True)
+        return False
+
+
 def _cancel_active_streaming_tts_worker(reason: str) -> bool:
     global _streaming_tts_worker
     with _streaming_tts_worker_lock:
@@ -9348,6 +9378,10 @@ def _cancel_active_streaming_tts_worker(reason: str) -> bool:
     try:
         worker.cancel()
         logger.info("voice Fish Audio streaming TTS canceled: reason=%s", reason)
+        _interrupt_voice_session_turn(reason)
+        with _assistant_overlay_lock:
+            global _assistant_overlay_text
+            _assistant_overlay_text = ""
     except Exception:
         logger.debug("voice Fish Audio streaming TTS cancel failed", exc_info=True)
     return True
@@ -9366,6 +9400,10 @@ def _log_streaming_tts_worker_result(worker: Any) -> None:
             return
         if getattr(worker, "error", None) is not None:
             logger.warning("voice Fish Audio streaming TTS failed: %s", worker.error)
+            return
+        cancelled = getattr(worker, "_cancelled", None)
+        if callable(getattr(cancelled, "is_set", None)) and cancelled.is_set():
+            logger.info("voice Fish Audio streaming TTS canceled before playback drain")
             return
         result = getattr(worker, "result", None)
         if result is not None:

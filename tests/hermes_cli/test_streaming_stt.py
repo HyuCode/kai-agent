@@ -1,4 +1,5 @@
 import json
+import threading
 import wave
 
 from hermes_cli.streaming_stt import (
@@ -448,6 +449,91 @@ def test_tui_streaming_stt_final_cancels_active_streaming_tts(monkeypatch):
     finally:
         server._set_active_streaming_tts_worker(None)
         server._cancel_streaming_stt_submit_buffer(flush=False)
+
+
+def test_voice_barge_in_interrupts_running_turn_without_caption_status(monkeypatch):
+    from tui_gateway import server
+
+    class FakeAgent:
+        def __init__(self):
+            self.interrupted = False
+
+        def interrupt(self):
+            self.interrupted = True
+
+    class FakeWorker:
+        def __init__(self):
+            self.cancelled = False
+
+        def cancel(self):
+            self.cancelled = True
+
+    sid = "voice-barge-in-test"
+    agent = FakeAgent()
+    worker = FakeWorker()
+    monkeypatch.setattr(server, "_clear_pending", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        server,
+        "_publish_live_overlay_caption",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected caption")),
+    )
+    monkeypatch.setattr(
+        server,
+        "_voice_emit",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected voice event")),
+    )
+    server._sessions[sid] = {
+        "agent": agent,
+        "history_lock": threading.Lock(),
+        "running": True,
+        "session_key": "voice-barge-in-key",
+    }
+    with server._voice_sid_lock:
+        server._voice_event_sid = sid
+    server._set_active_streaming_tts_worker(worker)
+    try:
+        assert server._cancel_active_streaming_tts_worker("stt_partial") is True
+
+        assert worker.cancelled is True
+        assert agent.interrupted is True
+    finally:
+        server._sessions.pop(sid, None)
+        with server._voice_sid_lock:
+            server._voice_event_sid = ""
+        server._set_active_streaming_tts_worker(None)
+
+
+def test_canceled_streaming_tts_worker_does_not_republish_assistant_caption(monkeypatch):
+    from tui_gateway import server
+
+    class FakeCancelled:
+        def is_set(self):
+            return True
+
+    class FakeWorker:
+        config = None
+        error = None
+        result = None
+        _cancelled = FakeCancelled()
+
+        def wait(self, timeout=None):
+            return True
+
+    captions = []
+    monkeypatch.setattr(
+        server,
+        "_publish_live_overlay_caption",
+        lambda text, *, final, speaker="host", ttl_seconds=None: captions.append(
+            (text, final, speaker, ttl_seconds)
+        ),
+    )
+    server._commit_assistant_overlay_caption("中断前の回答", ttl_seconds=600.0)
+    captions.clear()
+
+    server._log_streaming_tts_worker_result(FakeWorker())
+
+    assert captions == []
+    server._reset_assistant_overlay_caption()
 
 
 def test_tui_assistant_stream_publishes_overlay_caption(monkeypatch):
