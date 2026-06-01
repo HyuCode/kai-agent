@@ -11,6 +11,7 @@ Built-in TTS providers:
 - Google Gemini TTS: Controllable, 30 prebuilt voices, needs GEMINI_API_KEY
 - xAI TTS: Grok voices, uses xAI Grok OAuth credentials or XAI_API_KEY
 - Fish Audio TTS: Expressive cloned voices, needs FISH_AUDIO_API_KEY
+- AquesTalk (local): Japanese rule-based TTS via local AquesTalk10 CLI
 - NeuTTS (local, free, no API key): On-device TTS via neutts
 - KittenTTS (local, free, no API key): On-device 25MB model
 - Piper (local, free, no API key): OHF-Voice/piper1-gpl neural VITS, 44 languages
@@ -200,6 +201,15 @@ DEFAULT_FISH_AUDIO_SAMPLE_RATE = 44100
 DEFAULT_FISH_AUDIO_MP3_BITRATE = 128
 DEFAULT_FISH_AUDIO_LATENCY = "normal"
 DEFAULT_FISH_AUDIO_TIMEOUT_SECONDS = 60
+DEFAULT_AQUESTALK_VOICE = "F1"
+DEFAULT_AQUESTALK_SPEED = 120
+DEFAULT_AQUESTALK_TIMEOUT_SECONDS = 10
+DEFAULT_AQUESTALK_OUTPUT_FORMAT = "mp3"
+DEFAULT_AQUESTALK_TERMS: Dict[str, str] = {}
+DEFAULT_AQUESTALK_KOE_MODEL = "gemma-4-e4b"
+DEFAULT_AQUESTALK_KOE_BASE_URL = "http://127.0.0.1:8001/v1"
+DEFAULT_AQUESTALK_KOE_TIMEOUT_MS = 8000
+DEFAULT_AQUESTALK_KOE_MAX_TOKENS = 220
 # PCM output specs for Gemini TTS (fixed by the API)
 GEMINI_TTS_SAMPLE_RATE = 24000
 GEMINI_TTS_CHANNELS = 1
@@ -226,6 +236,7 @@ PROVIDER_MAX_TEXT_LENGTH: Dict[str, int] = {
     "mistral": 4000,      # conservative; no published per-request cap
     "gemini": 32000,      # Gemini TTS has a 32k-token context window; char cap is conservative
     "fish_audio": 5000,   # conservative; Fish Audio chunks internally
+    "aquestalk": 2000,    # local CLI; quality improves with short segments
     "elevenlabs": 10000,  # fallback when model-aware lookup can't resolve (multilingual_v2)
     "neutts": 2000,       # local model, quality falls off on long text
     "kittentts": 2000,    # local 25MB model
@@ -394,6 +405,7 @@ BUILTIN_TTS_PROVIDERS = frozenset({
     "mistral",
     "gemini",
     "fish_audio",
+    "aquestalk",
     "neutts",
     "kittentts",
     "piper",
@@ -1889,6 +1901,554 @@ def _generate_fish_audio_tts(text: str, output_path: str, tts_config: Dict[str, 
 
 
 # ===========================================================================
+# AquesTalk (local, rule-based Japanese TTS via local AquesTalk10 CLI)
+# ===========================================================================
+
+def _aquestalk_int_config(
+    value: Any,
+    default: int,
+    *,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int:
+    if isinstance(value, bool) or value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and parsed < minimum:
+        return default
+    if maximum is not None and parsed > maximum:
+        return default
+    return parsed
+
+
+def _aquestalk_float_config(
+    value: Any,
+    default: float,
+    *,
+    minimum: float | None = None,
+) -> float:
+    if isinstance(value, bool) or value is None:
+        return default
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and parsed < minimum:
+        return default
+    return parsed
+
+
+def _aquestalk_bool_config(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    if value is None:
+        return default
+    return bool(value)
+
+
+def _aquestalk_config(tts_config: Dict[str, Any]) -> Dict[str, Any]:
+    section = tts_config.get("aquestalk")
+    return section if isinstance(section, dict) else {}
+
+
+def _default_aquestalk_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "aquestalk"
+
+
+def _aquestalk_cli_path(config: Dict[str, Any]) -> str:
+    configured = (
+        config.get("cli_path")
+        or config.get("binary")
+        or get_env_value("AQUESTALK_CLI_PATH")
+        or ""
+    )
+    if configured:
+        return str(Path(str(configured)).expanduser())
+    return str(_default_aquestalk_dir() / "aquestalk_cli")
+
+
+def _aquestalk_lib_dir(config: Dict[str, Any]) -> str:
+    configured = config.get("lib_dir") or get_env_value("AQUESTALK_LIB_DIR") or ""
+    if configured:
+        return str(Path(str(configured)).expanduser())
+    return str(_default_aquestalk_dir() / "lib")
+
+
+def _aquestalk_output_format_for_output(output_path: str, configured: Any) -> str:
+    suffix = Path(output_path).suffix.lower()
+    if suffix == ".wav":
+        return "wav"
+    if suffix == ".ogg":
+        return "ogg"
+    if suffix == ".mp3":
+        return "mp3"
+    raw = str(configured or DEFAULT_AQUESTALK_OUTPUT_FORMAT).strip().lower()
+    return raw if raw in {"wav", "mp3", "ogg"} else DEFAULT_AQUESTALK_OUTPUT_FORMAT
+
+
+def _replace_aquestalk_terms(text: str, terms: Dict[str, str]) -> str:
+    result = text
+    for term, reading in sorted(terms.items(), key=lambda item: len(item[0]), reverse=True):
+        result = re.sub(re.escape(term), reading, result, flags=re.IGNORECASE)
+    return result
+
+
+def _katakana_to_hiragana(text: str) -> str:
+    return "".join(
+        chr(ord(ch) - 0x60) if "\u30a1" <= ch <= "\u30f6" else ch
+        for ch in text
+    )
+
+
+def _apply_aquestalk_particle_pronunciation(text: str) -> str:
+    """Convert obvious segment-final particles to pronunciation spelling."""
+    text = re.sub(r"は(?=($|[、。？/;]))", "わ", text)
+    text = re.sub(r"へ(?=($|[、。？/;]))", "え", text)
+    text = re.sub(r"を(?=($|[、。？/;]))", "お", text)
+    return text
+
+
+def _load_aquestalk_terms(config: Dict[str, Any]) -> Dict[str, str]:
+    terms: Dict[str, str] = dict(DEFAULT_AQUESTALK_TERMS)
+    terms_path = config.get("terms_path")
+    if isinstance(terms_path, str) and terms_path.strip():
+        try:
+            data = json.loads(Path(terms_path).expanduser().read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    if isinstance(key, str) and isinstance(value, str) and key.strip() and value.strip():
+                        terms[key.strip()] = value.strip()
+        except Exception as exc:
+            logger.debug("AquesTalk terms_path load failed: %s", exc, exc_info=True)
+    configured = config.get("terms")
+    if isinstance(configured, dict):
+        for key, value in configured.items():
+            if isinstance(key, str) and isinstance(value, str) and key.strip() and value.strip():
+                terms[key.strip()] = value.strip()
+    return terms
+
+
+def _load_relevant_aquestalk_terms(text: str, config: Dict[str, Any]) -> Dict[str, str]:
+    terms = _load_aquestalk_terms(config)
+    if config.get("terms_db_enabled", True) is False:
+        return terms
+    try:
+        from hermes_cli.tts_terms import find_relevant_tts_terms
+
+        db_terms = find_relevant_tts_terms(
+            text,
+            limit=_aquestalk_int_config(config.get("terms_limit"), 64, minimum=1, maximum=500),
+            min_confidence=_aquestalk_float_config(config.get("terms_min_confidence"), 0.0, minimum=0.0),
+            db_path=config.get("terms_db_path") or None,
+        )
+        terms.update(db_terms)
+    except Exception as exc:
+        logger.debug("AquesTalk TTS term retrieval failed: %s", exc, exc_info=True)
+    return terms
+
+
+def _normalize_aquestalk_text(text: str, config: Dict[str, Any]) -> str:
+    """Normalize assistant text enough for AquesTalk10 CLI safety.
+
+    This is intentionally deterministic and dependency-free. It does not try
+    to solve full kanji-to-kana conversion; unknown kanji are left in place so
+    the CLI can fail clearly instead of silently reading the wrong phrase.
+    """
+    try:
+        text = _strip_markdown_for_tts(text)
+    except Exception:
+        text = str(text or "")
+    text = _replace_aquestalk_terms(text, _load_relevant_aquestalk_terms(text, config))
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F-\x9F]", "", text)
+    text = re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE00-\uFE0F]", "", text)
+    text = re.sub(r"[…]+", "", text)
+    text = re.sub(r"[！!]+", "。", text)
+    text = re.sub(r"[？?]+", "？", text)
+    text = re.sub(r"[、，,]+", "、", text)
+    text = re.sub(r"[。．.]+", "。", text)
+    text = re.sub(r"[・：:]+", ";", text)
+    text = re.sub(r"[（(][^（()）)]*[）)]", "", text)
+    text = re.sub(r"[（）()「」『』\"'“”‘’]", "", text)
+    text = re.sub(r"[`*_~|\\{}\[\]<>]", "", text)
+    text = re.sub(r"\s+", "", text)
+    replacements = {
+        "づ": "ず",
+        "ぢ": "じ",
+        "ゔぁ": "ば",
+        "ゔぃ": "び",
+        "ゔぇ": "べ",
+        "ゔぉ": "ぼ",
+        "ゔ": "ぶ",
+        "ぐぃ": "ぎ",
+        "ぐぅ": "ぐ",
+        "ぐぇ": "げ",
+        "ぐぉ": "ご",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    text = _katakana_to_hiragana(text)
+    text = _apply_aquestalk_particle_pronunciation(text)
+    text = re.sub(r"っー", "っ", text)
+    text = re.sub(r"っ{2,}", "っ", text)
+    text = re.sub(r"っ([。？、])", r"\1", text)
+    text = re.sub(r"ー{2,}", "ー", text)
+    text = re.sub(r"。{2,}", "。", text)
+    if text and not text.endswith(("。", "？")):
+        text += "。"
+    return text
+
+
+def _aquestalk_koe_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    section = config.get("koe_generation")
+    return section if isinstance(section, dict) else {}
+
+
+def _aquestalk_terms_prompt_section(text: str, config: Dict[str, Any]) -> str:
+    terms = _load_relevant_aquestalk_terms(text, config)
+    if not terms:
+        return ""
+    lines = ["用語辞書:"]
+    for term, reading in sorted(terms.items(), key=lambda item: len(item[0]), reverse=True)[:64]:
+        lines.append(f"- {term}: {reading}")
+    return "\n".join(lines)
+
+
+def _aquestalk_koe_prompt(text: str, config: Dict[str, Any]) -> str:
+    terms_section = _aquestalk_terms_prompt_section(text, config)
+    if terms_section:
+        terms_section = f"\n\n{terms_section}"
+    return (
+        "日本語テキストを AquesTalk10 で合成しやすい読み文字列へ変換してください。\n"
+        "出力は読み文字列のみ。説明、引用符、コードブロック、前後の空白は不要です。\n\n"
+        "ルール:\n"
+        "- 漢字、英字、数字、カタカナは自然なひらがな読みに変換する。\n"
+        "- AquesTalk10 のタグは使わず、数字もひらがなで読む。\n"
+        "- 長音は全角の「ー」を使う。\n"
+        "- 単語境界には必要に応じて「/」を入れる。\n"
+        "- 文末は「。」または「？」で終える。\n"
+        "- 助詞は発音に合わせる。例: は→わ、へ→え、を→お。\n"
+        "- 挨拶の「こんにちは」は「こんにちわ」、「こんばんは」は「こんばんわ」と読む。\n"
+        "- 記号は読み上げに不要なら削除する。！は「。」へ変換する。\n"
+        "- づ→ず、ぢ→じ、ゔ→ぶ、ぐぃ→ぎ、ぐぅ→ぐ、ぐぇ→げ、ぐぉ→ご。\n"
+        "- OBS、YouTube、LLM、API などの技術用語は自然な日本語読みへ変換する。"
+        "\n\n例:\n"
+        "次に右へ進みます。 -> つぎに/みぎえ/すすみます。\n"
+        "こんにちは、調子はどうですか？ -> こんにちわ、ちょうしわ/どうですか？\n"
+        "OBSとYouTubeチャットを見ながら、LLMで判断します。 -> "
+        "おーびーえすと/ゆーちゅーぶちゃっとお/みながら、えるえるえむで/はんだんします。"
+        f"{terms_section}"
+    )
+
+
+def _sanitize_aquestalk_koe(text: str) -> str:
+    """Keep only AquesTalk-safe reading characters from LLM output."""
+    text = str(text or "").strip()
+    text = re.sub(r"^```(?:\w+)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    text = text.strip(" \t\r\n\"'`")
+    text = re.sub(r"^音声記号列\s*[:：]\s*", "", text)
+    text = re.sub(r"^出力\s*[:：]\s*", "", text)
+    text = re.sub(r"https?://\S+", "", text)
+    text = re.sub(r"[！!]+", "。", text)
+    text = re.sub(r"[？?]+", "？", text)
+    text = re.sub(r"[、，,]+", "、", text)
+    text = re.sub(r"[。．.]+", "。", text)
+    text = re.sub(r"[・：:]+", ";", text)
+    text = re.sub(r"\s+", "", text)
+    text = _katakana_to_hiragana(text)
+    replacements = {
+        "づ": "ず",
+        "ぢ": "じ",
+        "ゔぁ": "ば",
+        "ゔぃ": "び",
+        "ゔぇ": "べ",
+        "ゔぉ": "ぼ",
+        "ゔ": "ぶ",
+        "ぐぃ": "ぎ",
+        "ぐぅ": "ぐ",
+        "ぐぇ": "げ",
+        "ぐぉ": "ご",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    text = re.sub(r"[^ぁ-ゖー、。？/;]", "", text)
+    text = _apply_aquestalk_particle_pronunciation(text)
+    text = re.sub(r"っー", "っ", text)
+    text = re.sub(r"っ{2,}", "っ", text)
+    text = re.sub(r"っ([。？、])", r"\1", text)
+    text = re.sub(r"ー{2,}", "ー", text)
+    text = re.sub(r"^[ー/;、。]+", "", text)
+    text = re.sub(r"([。？、/;])ー", r"\1", text)
+    text = re.sub(r"[、/;]{2,}", "/", text)
+    text = re.sub(r"。{2,}", "。", text)
+    if text and not text.endswith(("。", "？")):
+        text += "。"
+    return text
+
+
+def _aquestalk_koe_endpoint(base_url: str) -> str:
+    base = (base_url or DEFAULT_AQUESTALK_KOE_BASE_URL).strip().rstrip("/")
+    if base.endswith("/chat/completions"):
+        return base
+    if base.endswith("/v1"):
+        return f"{base}/chat/completions"
+    return f"{base}/v1/chat/completions"
+
+
+def _generate_aquestalk_koe_with_llm(text: str, config: Dict[str, Any]) -> Optional[str]:
+    koe_config = _aquestalk_koe_config(config)
+    if not _aquestalk_bool_config(koe_config.get("enabled"), False):
+        return None
+
+    base_url = (
+        koe_config.get("base_url")
+        or get_env_value("AQUESTALK_KOE_BASE_URL")
+        or get_env_value("KOE_LOCAL_LLM_URL")
+        or DEFAULT_AQUESTALK_KOE_BASE_URL
+    )
+    model = (
+        koe_config.get("model")
+        or get_env_value("AQUESTALK_KOE_MODEL")
+        or get_env_value("TTS_KOE_MODEL")
+        or DEFAULT_AQUESTALK_KOE_MODEL
+    )
+    api_key = koe_config.get("api_key") or get_env_value("AQUESTALK_KOE_API_KEY") or ""
+    timeout_ms = _aquestalk_int_config(
+        koe_config.get("timeout_ms", get_env_value("AQUESTALK_KOE_TIMEOUT_MS")),
+        DEFAULT_AQUESTALK_KOE_TIMEOUT_MS,
+        minimum=250,
+        maximum=120000,
+    )
+    max_tokens = _aquestalk_int_config(
+        koe_config.get("max_tokens"),
+        DEFAULT_AQUESTALK_KOE_MAX_TOKENS,
+        minimum=32,
+        maximum=2000,
+    )
+    temperature = _aquestalk_float_config(koe_config.get("temperature"), 0.0, minimum=0.0)
+
+    try:
+        import requests
+
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        response = requests.post(
+            _aquestalk_koe_endpoint(str(base_url)),
+            headers=headers,
+            json={
+                "model": str(model),
+                "messages": [
+                    {"role": "system", "content": _aquestalk_koe_prompt(text, config)},
+                    {"role": "user", "content": text},
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            },
+            timeout=timeout_ms / 1000.0,
+        )
+        if response.status_code >= 400:
+            logger.debug("AquesTalk koe LLM failed with HTTP %s", response.status_code)
+            return None
+        data = response.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        sanitized = _sanitize_aquestalk_koe(str(content))
+        return sanitized or None
+    except Exception as exc:
+        logger.debug("AquesTalk koe LLM generation failed: %s", exc, exc_info=True)
+        return None
+
+
+def _aquestalk_text_needs_llm(text: str) -> bool:
+    return bool(re.search(r"[一-龯々〆ヵヶA-Za-z0-9]", text or ""))
+
+
+def _prepare_aquestalk_text(text: str, config: Dict[str, Any]) -> str:
+    try:
+        stripped = _strip_markdown_for_tts(text)
+    except Exception:
+        stripped = str(text or "")
+    terms_applied = _replace_aquestalk_terms(stripped, _load_relevant_aquestalk_terms(stripped, config))
+    deterministic = _normalize_aquestalk_text(terms_applied, config)
+    if not _aquestalk_text_needs_llm(deterministic):
+        return deterministic
+    llm_koe = _generate_aquestalk_koe_with_llm(terms_applied, config)
+    if llm_koe:
+        return llm_koe
+    return deterministic
+
+
+def _aquestalk_voice_args(config: Dict[str, Any]) -> list[str]:
+    args: list[str] = []
+    mapping = (
+        ("volume", "vol", "--vol", 0, 300),
+        ("vol", "vol", "--vol", 0, 300),
+        ("pitch", "pit", "--pit", 20, 200),
+        ("pit", "pit", "--pit", 20, 200),
+        ("accent", "acc", "--acc", 0, 200),
+        ("acc", "acc", "--acc", 0, 200),
+        ("intonation", "lmd", "--lmd", 0, 200),
+        ("lmd", "lmd", "--lmd", 0, 200),
+        ("sampling_freq", "fsc", "--fsc", 50, 200),
+        ("fsc", "fsc", "--fsc", 50, 200),
+    )
+    seen: set[str] = set()
+    for config_key, canonical, flag, minimum, maximum in mapping:
+        if canonical in seen or config_key not in config:
+            continue
+        value = _aquestalk_int_config(config.get(config_key), -1, minimum=minimum, maximum=maximum)
+        if value >= 0:
+            args.append(f"{flag}={value}")
+            seen.add(canonical)
+    return args
+
+
+def _run_aquestalk_cli(
+    text: str,
+    *,
+    cli_path: str,
+    lib_dir: str,
+    voice: str,
+    speed: int,
+    timeout: float,
+    config: Dict[str, Any],
+) -> bytes:
+    if not cli_path:
+        raise ValueError("tts.aquestalk.cli_path is required")
+    if not os.path.isfile(cli_path) or not os.access(cli_path, os.X_OK):
+        raise FileNotFoundError(f"AquesTalk CLI not executable: {cli_path}")
+    if voice not in {"F1", "F2", "F3", "M1", "M2", "R1", "R2"}:
+        raise ValueError("tts.aquestalk.voice must be one of F1, F2, F3, M1, M2, R1, R2")
+    if speed < 50 or speed > 300:
+        raise ValueError("tts.aquestalk.speed must be between 50 and 300")
+
+    env = os.environ.copy()
+    if lib_dir:
+        env["DYLD_LIBRARY_PATH"] = lib_dir
+    # Safe CLIs read these from env. Do not pass or log the values as args.
+    for key in ("AQUESTALK_DEV_KEY", "AQUESTALK_USR_KEY"):
+        value = get_env_value(key)
+        if value:
+            env[key] = value
+
+    proc = subprocess.run(
+        [cli_path, text, voice, str(speed), *_aquestalk_voice_args(config)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=env,
+        timeout=timeout,
+        check=False,
+    )
+    if proc.returncode != 0:
+        detail = proc.stderr.decode("utf-8", errors="replace").strip()[:300]
+        raise RuntimeError(f"AquesTalk CLI failed with code {proc.returncode}: {detail}")
+    if not proc.stdout:
+        raise RuntimeError("AquesTalk CLI returned empty audio data")
+    return proc.stdout
+
+
+def _ffmpeg_convert_audio(input_path: str, output_path: str, output_format: str) -> None:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise RuntimeError(f"ffmpeg is required to write AquesTalk {output_format} output")
+    if output_format == "mp3":
+        codec_args = ["-codec:a", "libmp3lame"]
+    elif output_format == "ogg":
+        codec_args = ["-codec:a", "libopus"]
+    else:
+        raise ValueError(f"unsupported AquesTalk conversion format: {output_format}")
+    proc = subprocess.run(
+        [
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-i",
+            input_path,
+            *codec_args,
+            output_path,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if proc.returncode != 0:
+        detail = proc.stderr.decode("utf-8", errors="replace").strip()[:300]
+        raise RuntimeError(f"ffmpeg failed to convert AquesTalk audio: {detail}")
+
+
+def _generate_aquestalk_tts(text: str, output_path: str, tts_config: Dict[str, Any]) -> str:
+    """Generate Japanese speech using a local AquesTalk10 CLI wrapper."""
+    config = _aquestalk_config(tts_config)
+    cli_path = _aquestalk_cli_path(config)
+    lib_dir = _aquestalk_lib_dir(config)
+    voice = str(config.get("voice") or tts_config.get("voice") or DEFAULT_AQUESTALK_VOICE).strip().upper()
+    speed = _aquestalk_int_config(
+        config.get("speed", tts_config.get("speed")),
+        DEFAULT_AQUESTALK_SPEED,
+        minimum=50,
+        maximum=300,
+    )
+    timeout = _aquestalk_float_config(
+        config.get("timeout_seconds", config.get("timeout")),
+        DEFAULT_AQUESTALK_TIMEOUT_SECONDS,
+        minimum=1.0,
+    )
+    normalized = _prepare_aquestalk_text(text, config)
+    if not normalized:
+        raise ValueError("AquesTalk TTS text is empty after normalization")
+
+    output_format = _aquestalk_output_format_for_output(
+        output_path,
+        config.get("output_format", config.get("format")),
+    )
+    wav_bytes = _run_aquestalk_cli(
+        normalized,
+        cli_path=cli_path,
+        lib_dir=lib_dir,
+        voice=voice,
+        speed=speed,
+        timeout=timeout,
+        config=config,
+    )
+    output = Path(output_path).expanduser()
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    if output_format == "wav":
+        output.write_bytes(wav_bytes)
+        return str(output)
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        tmp.write(wav_bytes)
+        tmp_path = tmp.name
+    try:
+        _ffmpeg_convert_audio(tmp_path, str(output), output_format)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+    return str(output)
+
+
+def _check_aquestalk_available(tts_config: Optional[Dict[str, Any]] = None) -> bool:
+    config = _aquestalk_config(tts_config or _load_tts_config())
+    cli_path = _aquestalk_cli_path(config)
+    return os.path.isfile(cli_path) and os.access(cli_path, os.X_OK)
+
+
+# ===========================================================================
 # NeuTTS (local, on-device TTS via neutts_cli)
 # ===========================================================================
 
@@ -2373,6 +2933,10 @@ def text_to_speech_tool(
             logger.info("Generating speech with Fish Audio TTS...")
             _generate_fish_audio_tts(text, file_str, tts_config)
 
+        elif provider == "aquestalk":
+            logger.info("Generating speech with AquesTalk TTS...")
+            file_str = _generate_aquestalk_tts(text, file_str, tts_config)
+
         elif provider == "neutts":
             if not _check_neutts_available():
                 return json.dumps({
@@ -2474,7 +3038,7 @@ def text_to_speech_tool(
                 voice_compatible = file_str.endswith(".ogg")
         elif (
             want_opus
-            and provider in {"edge", "neutts", "minimax", "xai", "kittentts", "piper"}
+            and provider in {"edge", "neutts", "minimax", "xai", "kittentts", "piper", "aquestalk"}
             and not file_str.endswith(".ogg")
         ):
             opus_path = _convert_to_opus(file_str)
@@ -2563,6 +3127,8 @@ def check_tts_requirements() -> bool:
     if get_env_value("GEMINI_API_KEY") or get_env_value("GOOGLE_API_KEY"):
         return True
     if get_env_value("FISH_AUDIO_API_KEY"):
+        return True
+    if _check_aquestalk_available():
         return True
     try:
         _import_mistral_client()

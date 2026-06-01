@@ -1622,7 +1622,7 @@ DEFAULT_CONFIG = {
     # limit (OpenAI 4096, xAI 15000, MiniMax 10000, ElevenLabs 5k-40k model-aware,
     # Gemini 32000, Edge 5000, Mistral 4000, NeuTTS/KittenTTS 2000).
     "tts": {
-        "provider": "edge",  # "edge" (free) | "elevenlabs" (premium) | "openai" | "xai" | "minimax" | "mistral" | "gemini" | "fish_audio" | "neutts" (local) | "kittentts" (local) | "piper" (local)
+        "provider": "edge",  # "edge" (free) | "elevenlabs" (premium) | "openai" | "xai" | "minimax" | "mistral" | "gemini" | "fish_audio" | "aquestalk" (local) | "neutts" (local) | "kittentts" (local) | "piper" (local)
         "edge": {
             "voice": "en-US-AriaNeural",
             # Popular: AriaNeural, JennyNeural, AndrewNeural, BrianNeural, SoniaNeural
@@ -1677,6 +1677,35 @@ DEFAULT_CONFIG = {
             "normalize": True,
             "normalize_loudness": True,
             "timeout_seconds": 60,
+        },
+        "aquestalk": {
+            "cli_path": "",  # empty = <repo>/aquestalk/aquestalk_cli
+            "lib_dir": "",  # empty = <repo>/aquestalk/lib
+            "voice": "F1",  # F1 | F2 | F3 | M1 | M2 | R1 | R2
+            "speed": 120,  # 50-300
+            "format": "mp3",  # wav | mp3 | ogg
+            "timeout_seconds": 10,
+            "terms_path": "",  # optional JSON object: {"OBS": "おーびーえす"}
+            "terms": {},
+            "terms_db_enabled": True,
+            "terms_db_path": "",  # empty = ~/.hermes/tts_terms.db
+            "terms_limit": 64,
+            "terms_min_confidence": 0.0,
+            "koe_generation": {
+                "enabled": False,
+                "base_url": "http://127.0.0.1:8001/v1",
+                "model": "gemma-4-e4b",
+                "api_key": "",
+                "timeout_ms": 8000,
+                "temperature": 0.0,
+                "max_tokens": 220,
+            },
+            # Optional AQTK_VOICE overrides. Omit to keep the voice preset.
+            "volume": None,  # --vol, 0-300
+            "pitch": None,  # --pit, 20-200
+            "accent": None,  # --acc, 0-200
+            "intonation": None,  # --lmd, 0-200
+            "sampling_freq": None,  # --fsc, 50-200
         },
         "neutts": {
             "ref_audio": "",  # Path to reference voice audio (empty = bundled default)
@@ -3216,6 +3245,20 @@ OPTIONAL_ENV_VARS = {
         "description": "Fish Audio API key for expressive text-to-speech voices",
         "prompt": "Fish Audio API key",
         "url": "https://fish.audio/",
+        "password": True,
+        "category": "tool",
+    },
+    "AQUESTALK_DEV_KEY": {
+        "description": "AquesTalk10 development license key for local TTS",
+        "prompt": "AquesTalk development license key",
+        "url": "https://www.a-quest.com/",
+        "password": True,
+        "category": "tool",
+    },
+    "AQUESTALK_USR_KEY": {
+        "description": "AquesTalk10 usage license key for local TTS watermarking",
+        "prompt": "AquesTalk usage license key",
+        "url": "https://www.a-quest.com/",
         "password": True,
         "category": "tool",
     },
