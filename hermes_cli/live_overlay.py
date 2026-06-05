@@ -41,6 +41,7 @@ class LiveOverlayState:
         self._captions: dict[str, dict[str, Any]] = {
             "host": self._empty_caption(),
             "assistant": self._empty_caption(),
+            "chat": self._empty_caption(),
         }
         self._subscribers: list[queue.Queue[dict[str, Any]]] = []
 
@@ -56,7 +57,10 @@ class LiveOverlayState:
 
     @staticmethod
     def _speaker(value: str) -> str:
-        return "assistant" if str(value or "").strip().lower() == "assistant" else "host"
+        normalized = str(value or "").strip().lower()
+        if normalized in {"assistant", "chat"}:
+            return normalized
+        return "host"
 
     def publish_caption(
         self,
@@ -89,7 +93,8 @@ class LiveOverlayState:
             if kind in {"caption", "all"}:
                 self._captions["host"] = self._empty_caption(updated_at=now)
                 self._captions["assistant"] = self._empty_caption(updated_at=now)
-            elif kind in {"host", "assistant"}:
+                self._captions["chat"] = self._empty_caption(updated_at=now)
+            elif kind in {"host", "assistant", "chat"}:
                 self._captions[kind] = self._empty_caption(updated_at=now)
             snapshot = self.snapshot_locked(now=now)
             subscribers = list(self._subscribers)
@@ -104,6 +109,7 @@ class LiveOverlayState:
         captions = {
             "host": self._active_caption("host", now=now),
             "assistant": self._active_caption("assistant", now=now),
+            "chat": self._active_caption("chat", now=now),
         }
         return {
             "caption": captions["host"],
@@ -431,6 +437,7 @@ _OVERLAY_HTML = """<!doctype html>
       --caption-muted: #d7e0e8;
       --host-accent: #00d6a3;
       --assistant-accent: #7cc7ff;
+      --chat-accent: #ffd166;
       --box-bg: rgba(8, 13, 18, 0.58);
       --box-border: rgba(245, 251, 255, 0.18);
       --shadow: rgba(0, 0, 0, 0.86);
@@ -467,6 +474,9 @@ _OVERLAY_HTML = """<!doctype html>
     .lane.assistant {
       justify-content: flex-end;
     }
+    .lane.chat {
+      justify-content: center;
+    }
     .captionBox {
       width: min(1560px, 96vw);
       height: 96px;
@@ -500,6 +510,14 @@ _OVERLAY_HTML = """<!doctype html>
     .captionBox.assistant {
       text-align: right;
       border-right: 5px solid var(--assistant-accent);
+    }
+    .captionBox.chat {
+      width: min(1180px, 82vw);
+      height: 74px;
+      text-align: center;
+      border-top: 4px solid var(--chat-accent);
+      font-size: clamp(15px, 1.32vw, 22px);
+      background: linear-gradient(180deg, rgba(22, 18, 10, 0.68), rgba(12, 10, 6, 0.54));
     }
     .captionBox:not(.visible) {
       background: rgba(8, 13, 18, 0.32);
@@ -550,11 +568,21 @@ _OVERLAY_HTML = """<!doctype html>
         border-left: 5px solid var(--assistant-accent);
         border-right-width: 1px;
       }
+      .captionBox.chat {
+        width: 100%;
+        height: 70px;
+      }
     }
   </style>
 </head>
 <body>
   <div id="captions">
+    <div class="lane chat">
+      <div id="caption-chat" class="captionBox chat" aria-live="polite">
+        <span class="label">YouTubeチャット</span>
+        <span class="text"></span>
+      </div>
+    </div>
     <div class="lane host">
       <div id="caption-host" class="captionBox host" aria-live="polite">
         <span class="label">実況者</span>
@@ -571,14 +599,16 @@ _OVERLAY_HTML = """<!doctype html>
   <script>
     const boxes = {
       host: document.getElementById('caption-host'),
-      assistant: document.getElementById('caption-assistant')
+      assistant: document.getElementById('caption-assistant'),
+      chat: document.getElementById('caption-chat')
     };
-    const expiresAt = { host: 0, assistant: 0 };
+    const expiresAt = { host: 0, assistant: 0, chat: 0 };
 
     function applyState(state) {
       const captions = state && state.captions ? state.captions : { host: state && state.caption ? state.caption : {} };
       applyCaption('host', captions.host || {});
       applyCaption('assistant', captions.assistant || {});
+      applyCaption('chat', captions.chat || {});
     }
 
     function applyCaption(speaker, item) {

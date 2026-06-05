@@ -1691,6 +1691,7 @@ DEFAULT_CONFIG = {
             "terms_db_path": "",  # empty = ~/.hermes/tts_terms.db
             "terms_limit": 64,
             "terms_min_confidence": 0.0,
+            "log_text": False,  # log original/prepared text for local quality tuning
             "koe_generation": {
                 "enabled": False,
                 "base_url": "http://127.0.0.1:8001/v1",
@@ -1792,6 +1793,30 @@ DEFAULT_CONFIG = {
             "max_chars": 160,
             "partial_ttl_seconds": 2.0,
             "final_ttl_seconds": 8.0,
+        },
+    },
+
+    "youtube_chat": {
+        "enabled": False,
+        "backend": "innertube",  # innertube | api
+        "node_path": "node",
+        "bridge_path": "",  # empty = scripts/youtube-chat-innertube-bridge.mjs
+        "video_id": "",
+        "video_url": "",
+        "live_chat_id": "",
+        "poll_interval_seconds": 5.0,
+        "max_results": 50,
+        "timeout_seconds": 10.0,
+        "selection": {
+            "selected_only": True,
+            "min_chars": 1,
+            "max_chars": 220,
+            "blocked_terms": [],
+            "spoiler_terms": ["ネタバレ", "spoiler"],
+        },
+        "overlay": {
+            "enabled": True,
+            "ttl_seconds": 12.0,
         },
     },
 
@@ -3230,6 +3255,14 @@ OPTIONAL_ENV_VARS = {
         "prompt": "Deepgram API key",
         "url": "https://console.deepgram.com/",
         "tools": ["streaming_stt"],
+        "password": True,
+        "category": "tool",
+    },
+    "YOUTUBE_API_KEY": {
+        "description": "YouTube Data API key for read-only live chat polling",
+        "prompt": "YouTube Data API key",
+        "url": "https://console.cloud.google.com/apis/credentials",
+        "tools": ["youtube_live_chat"],
         "password": True,
         "category": "tool",
     },

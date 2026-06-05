@@ -157,6 +157,26 @@ def test_aquestalk_generation_passes_llm_koe_to_cli(tmp_path):
     assert run.call_args.args[0] == "つぎに/みぎえ/すすみます。"
 
 
+def test_aquestalk_generation_logs_quality_metrics(tmp_path, caplog):
+    from tools.tts_tool import _generate_aquestalk_tts
+
+    output_path = tmp_path / "out.wav"
+
+    with caplog.at_level("INFO", logger="tools.tts_tool"), patch(
+        "tools.tts_tool._run_aquestalk_cli",
+        return_value=b"RIFFwav",
+    ):
+        result = _generate_aquestalk_tts(
+            "こんにちは。",
+            str(output_path),
+            {"aquestalk": {"cli_path": "/bin/echo", "log_text": True}},
+        )
+
+    assert result == str(output_path)
+    assert "AquesTalk TTS quality success=True source=deterministic" in caplog.text
+    assert "AquesTalk TTS text original='こんにちは。' prepared='こんにちわ。'" in caplog.text
+
+
 def test_aquestalk_wav_generation_writes_cli_stdout(tmp_path):
     from tools.tts_tool import _generate_aquestalk_tts
 

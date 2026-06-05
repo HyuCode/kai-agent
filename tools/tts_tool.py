@@ -49,6 +49,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Callable, Dict, Any, Optional
@@ -2273,7 +2274,7 @@ def _aquestalk_text_needs_llm(text: str) -> bool:
     return bool(re.search(r"[一-龯々〆ヵヶA-Za-z0-9]", text or ""))
 
 
-def _prepare_aquestalk_text(text: str, config: Dict[str, Any]) -> str:
+def _prepare_aquestalk_text_with_metadata(text: str, config: Dict[str, Any]) -> tuple[str, str]:
     try:
         stripped = _strip_markdown_for_tts(text)
     except Exception:
@@ -2281,11 +2282,16 @@ def _prepare_aquestalk_text(text: str, config: Dict[str, Any]) -> str:
     terms_applied = _replace_aquestalk_terms(stripped, _load_relevant_aquestalk_terms(stripped, config))
     deterministic = _normalize_aquestalk_text(terms_applied, config)
     if not _aquestalk_text_needs_llm(deterministic):
-        return deterministic
+        return deterministic, "deterministic"
     llm_koe = _generate_aquestalk_koe_with_llm(terms_applied, config)
     if llm_koe:
-        return llm_koe
-    return deterministic
+        return llm_koe, "llm"
+    return deterministic, "fallback"
+
+
+def _prepare_aquestalk_text(text: str, config: Dict[str, Any]) -> str:
+    prepared, _source = _prepare_aquestalk_text_with_metadata(text, config)
+    return prepared
 
 
 def _aquestalk_voice_args(config: Dict[str, Any]) -> list[str]:
@@ -2388,6 +2394,40 @@ def _ffmpeg_convert_audio(input_path: str, output_path: str, output_format: str)
         raise RuntimeError(f"ffmpeg failed to convert AquesTalk audio: {detail}")
 
 
+def _log_aquestalk_quality_event(
+    config: Dict[str, Any],
+    *,
+    original_text: str,
+    prepared_text: str,
+    prepare_source: str,
+    prepare_ms: float,
+    synth_ms: float,
+    convert_ms: float,
+    output_format: str,
+    success: bool,
+    error: Optional[str] = None,
+) -> None:
+    logger.info(
+        "AquesTalk TTS quality success=%s source=%s format=%s chars=%d prepared_chars=%d "
+        "prepare_ms=%.1f synth_ms=%.1f convert_ms=%.1f%s",
+        success,
+        prepare_source,
+        output_format,
+        len(original_text or ""),
+        len(prepared_text or ""),
+        prepare_ms,
+        synth_ms,
+        convert_ms,
+        f" error={error[:160]}" if error else "",
+    )
+    if _aquestalk_bool_config(config.get("log_text"), False):
+        logger.info(
+            "AquesTalk TTS text original=%r prepared=%r",
+            original_text,
+            prepared_text,
+        )
+
+
 def _generate_aquestalk_tts(text: str, output_path: str, tts_config: Dict[str, Any]) -> str:
     """Generate Japanese speech using a local AquesTalk10 CLI wrapper."""
     config = _aquestalk_config(tts_config)
@@ -2405,7 +2445,9 @@ def _generate_aquestalk_tts(text: str, output_path: str, tts_config: Dict[str, A
         DEFAULT_AQUESTALK_TIMEOUT_SECONDS,
         minimum=1.0,
     )
-    normalized = _prepare_aquestalk_text(text, config)
+    prepare_started = time.perf_counter()
+    normalized, prepare_source = _prepare_aquestalk_text_with_metadata(text, config)
+    prepare_ms = (time.perf_counter() - prepare_started) * 1000.0
     if not normalized:
         raise ValueError("AquesTalk TTS text is empty after normalization")
 
@@ -2413,32 +2455,89 @@ def _generate_aquestalk_tts(text: str, output_path: str, tts_config: Dict[str, A
         output_path,
         config.get("output_format", config.get("format")),
     )
-    wav_bytes = _run_aquestalk_cli(
-        normalized,
-        cli_path=cli_path,
-        lib_dir=lib_dir,
-        voice=voice,
-        speed=speed,
-        timeout=timeout,
-        config=config,
-    )
+    synth_started = time.perf_counter()
+    try:
+        wav_bytes = _run_aquestalk_cli(
+            normalized,
+            cli_path=cli_path,
+            lib_dir=lib_dir,
+            voice=voice,
+            speed=speed,
+            timeout=timeout,
+            config=config,
+        )
+    except Exception as exc:
+        synth_ms = (time.perf_counter() - synth_started) * 1000.0
+        _log_aquestalk_quality_event(
+            config,
+            original_text=text,
+            prepared_text=normalized,
+            prepare_source=prepare_source,
+            prepare_ms=prepare_ms,
+            synth_ms=synth_ms,
+            convert_ms=0.0,
+            output_format=output_format,
+            success=False,
+            error=str(exc),
+        )
+        raise
+    synth_ms = (time.perf_counter() - synth_started) * 1000.0
     output = Path(output_path).expanduser()
     output.parent.mkdir(parents=True, exist_ok=True)
 
     if output_format == "wav":
         output.write_bytes(wav_bytes)
+        _log_aquestalk_quality_event(
+            config,
+            original_text=text,
+            prepared_text=normalized,
+            prepare_source=prepare_source,
+            prepare_ms=prepare_ms,
+            synth_ms=synth_ms,
+            convert_ms=0.0,
+            output_format=output_format,
+            success=True,
+        )
         return str(output)
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp.write(wav_bytes)
         tmp_path = tmp.name
+    convert_started = time.perf_counter()
     try:
         _ffmpeg_convert_audio(tmp_path, str(output), output_format)
+        convert_ms = (time.perf_counter() - convert_started) * 1000.0
+    except Exception as exc:
+        convert_ms = (time.perf_counter() - convert_started) * 1000.0
+        _log_aquestalk_quality_event(
+            config,
+            original_text=text,
+            prepared_text=normalized,
+            prepare_source=prepare_source,
+            prepare_ms=prepare_ms,
+            synth_ms=synth_ms,
+            convert_ms=convert_ms,
+            output_format=output_format,
+            success=False,
+            error=str(exc),
+        )
+        raise
     finally:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
+    _log_aquestalk_quality_event(
+        config,
+        original_text=text,
+        prepared_text=normalized,
+        prepare_source=prepare_source,
+        prepare_ms=prepare_ms,
+        synth_ms=synth_ms,
+        convert_ms=convert_ms,
+        output_format=output_format,
+        success=True,
+    )
     return str(output)
 
 

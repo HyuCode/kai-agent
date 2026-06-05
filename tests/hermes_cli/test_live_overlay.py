@@ -52,11 +52,14 @@ def test_live_overlay_state_keeps_host_and_assistant_lanes_separate():
 
     snapshot = state.publish_caption("実況者の字幕", final=False, ttl_seconds=3, speaker="host")
     snapshot = state.publish_caption("AIの字幕", final=True, ttl_seconds=3, speaker="assistant")
+    snapshot = state.publish_caption("viewer: ここは右？", final=True, ttl_seconds=3, speaker="chat")
 
     assert snapshot["captions"]["host"]["text"] == "実況者の字幕"
     assert snapshot["captions"]["host"]["speaker"] == "host"
     assert snapshot["captions"]["assistant"]["text"] == "AIの字幕"
     assert snapshot["captions"]["assistant"]["speaker"] == "assistant"
+    assert snapshot["captions"]["chat"]["text"] == "viewer: ここは右？"
+    assert snapshot["captions"]["chat"]["speaker"] == "chat"
 
 
 def test_live_overlay_server_publish_caption_accepts_ttl_override():
