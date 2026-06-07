@@ -2363,6 +2363,14 @@ def _run_aquestalk_cli(
     return proc.stdout
 
 
+def _aquestalk_retry_text(text: str) -> str:
+    """Return a safer fallback text for AquesTalk when koe generation failed."""
+    if not _aquestalk_text_needs_llm(text):
+        return ""
+    safe = _sanitize_aquestalk_koe(text)
+    return safe if safe and safe != text else ""
+
+
 def _ffmpeg_convert_audio(input_path: str, output_path: str, output_format: str) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -2456,6 +2464,7 @@ def _generate_aquestalk_tts(text: str, output_path: str, tts_config: Dict[str, A
         config.get("output_format", config.get("format")),
     )
     synth_started = time.perf_counter()
+    retry_error: str | None = None
     try:
         wav_bytes = _run_aquestalk_cli(
             normalized,
@@ -2467,20 +2476,50 @@ def _generate_aquestalk_tts(text: str, output_path: str, tts_config: Dict[str, A
             config=config,
         )
     except Exception as exc:
-        synth_ms = (time.perf_counter() - synth_started) * 1000.0
-        _log_aquestalk_quality_event(
-            config,
-            original_text=text,
-            prepared_text=normalized,
-            prepare_source=prepare_source,
-            prepare_ms=prepare_ms,
-            synth_ms=synth_ms,
-            convert_ms=0.0,
-            output_format=output_format,
-            success=False,
-            error=str(exc),
-        )
-        raise
+        retry_text = _aquestalk_retry_text(normalized)
+        if not retry_text:
+            synth_ms = (time.perf_counter() - synth_started) * 1000.0
+            _log_aquestalk_quality_event(
+                config,
+                original_text=text,
+                prepared_text=normalized,
+                prepare_source=prepare_source,
+                prepare_ms=prepare_ms,
+                synth_ms=synth_ms,
+                convert_ms=0.0,
+                output_format=output_format,
+                success=False,
+                error=str(exc),
+            )
+            raise
+        retry_error = str(exc)
+        try:
+            wav_bytes = _run_aquestalk_cli(
+                retry_text,
+                cli_path=cli_path,
+                lib_dir=lib_dir,
+                voice=voice,
+                speed=speed,
+                timeout=timeout,
+                config=config,
+            )
+            normalized = retry_text
+            prepare_source = f"{prepare_source}_sanitized_retry"
+        except Exception as retry_exc:
+            synth_ms = (time.perf_counter() - synth_started) * 1000.0
+            _log_aquestalk_quality_event(
+                config,
+                original_text=text,
+                prepared_text=retry_text,
+                prepare_source=f"{prepare_source}_sanitized_retry",
+                prepare_ms=prepare_ms,
+                synth_ms=synth_ms,
+                convert_ms=0.0,
+                output_format=output_format,
+                success=False,
+                error=f"{retry_error}; retry failed: {retry_exc}",
+            )
+            raise retry_exc from exc
     synth_ms = (time.perf_counter() - synth_started) * 1000.0
     output = Path(output_path).expanduser()
     output.parent.mkdir(parents=True, exist_ok=True)

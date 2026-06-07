@@ -69,6 +69,42 @@ def test_tui_voice_on_starts_live_overlay_when_configured(monkeypatch):
     assert started == [True]
 
 
+def test_tui_stream_game_applies_preset_and_enables_voice_runtime(monkeypatch):
+    from tui_gateway import server
+    import hermes_cli.stream_assistant as stream_assistant
+
+    started = []
+    overlays = []
+    monkeypatch.setenv("HERMES_VOICE", "0")
+    monkeypatch.setenv("HERMES_VOICE_TTS", "0")
+    monkeypatch.setattr(
+        stream_assistant,
+        "apply_stream_mode",
+        lambda mode: {
+            "success": True,
+            "mode": mode,
+            "applied": [],
+            "failed": [],
+            "next_steps": [],
+        },
+    )
+    monkeypatch.setattr(
+        server,
+        "_load_cfg",
+        lambda: {"streaming_stt": {"enabled": True, "provider": "deepgram", "always_on": True}},
+    )
+    monkeypatch.setattr(server, "_ensure_live_overlay_server", lambda: overlays.append(True) or "http://overlay")
+    monkeypatch.setattr(server, "_start_streaming_stt", lambda: started.append(True) or "recording")
+
+    result = server._methods["command.dispatch"]("rid-1", {"name": "stream", "arg": "game"})
+
+    assert result["result"]["type"] == "exec"
+    assert "voice: ON" in result["result"]["output"]
+    assert "voice TTS: ON" in result["result"]["output"]
+    assert overlays == [True]
+    assert started == [True]
+
+
 def test_tui_streaming_stt_baseline_buffers_until_debounce_flush(monkeypatch):
     from tui_gateway import server
 

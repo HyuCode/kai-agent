@@ -5733,6 +5733,8 @@ def _start_notification_poller(sid: str, session: dict) -> threading.Event:
 
 
 def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
+    turn_id = f"{sid or 'session'}:{int(time.time() * 1000)}"
+    turn_queued_at = time.monotonic()
     with session["history_lock"]:
         history = list(session["history"])
         history_version = int(session.get("history_version", 0))
@@ -5775,14 +5777,25 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             cols = session.get("cols", 80)
             streamer = make_stream_renderer(cols)
             prompt = text
-            if _voice_tts_enabled() and _fish_audio_streaming_tts_enabled():
+            fish_streaming_tts = _fish_audio_streaming_tts_enabled()
+            logger.info(
+                "tui turn started: turn_id=%s sid=%s input_chars=%d history=%d voice_tts=%s fish_streaming_tts=%s queued_ms=%d",
+                turn_id,
+                sid,
+                len(str(text or "")),
+                len(history),
+                _voice_tts_enabled(),
+                fish_streaming_tts,
+                int((time.monotonic() - turn_queued_at) * 1000),
+            )
+            if _voice_tts_enabled() and fish_streaming_tts:
                 try:
                     from hermes_cli.streaming_tts import FishAudioStreamingTTSWorker
 
                     streaming_tts_worker = FishAudioStreamingTTSWorker()
                     streaming_tts_worker.start()
                     _set_active_streaming_tts_worker(streaming_tts_worker)
-                    logger.info("voice Fish Audio streaming TTS worker started")
+                    logger.info("voice Fish Audio streaming TTS worker started: turn_id=%s", turn_id)
                 except Exception as exc:
                     streaming_tts_worker = None
                     logger.warning("voice Fish Audio streaming TTS unavailable: %s", exc, exc_info=True)
@@ -5895,7 +5908,9 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                     run_kwargs["task_id"] = session["session_key"]
             except (TypeError, ValueError):
                 pass
+            llm_started_at = time.monotonic()
             result = agent.run_conversation(run_message, **run_kwargs)
+            llm_elapsed_ms = int((time.monotonic() - llm_started_at) * 1000)
 
             last_reasoning = None
             status_note = None
@@ -5961,6 +5976,14 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                 raw = str(result)
                 status = "complete"
 
+            logger.info(
+                "tui turn llm complete: turn_id=%s status=%s response_chars=%d llm_ms=%d",
+                turn_id,
+                status,
+                len(raw or ""),
+                llm_elapsed_ms,
+            )
+
             payload = {"text": raw, "usage": _get_usage(agent), "status": status}
             if last_reasoning:
                 payload["reasoning"] = last_reasoning
@@ -5982,6 +6005,12 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
             with session["history_lock"]:
                 _clear_inflight_turn(session)
             _emit("message.complete", sid, payload)
+            logger.info(
+                "tui turn message complete: turn_id=%s status=%s total_ms=%d",
+                turn_id,
+                status,
+                int((time.monotonic() - turn_queued_at) * 1000),
+            )
 
             # ── /goal continuation (Ralph-style loop) ─────────────────
             # After every TUI turn, if a /goal is active, ask the judge
@@ -6085,8 +6114,25 @@ def _run_prompt_submit(rid, sid: str, session: dict, text: Any) -> None:
                     from hermes_cli.voice import speak_text
 
                     spoken = raw
+                    def _speak_with_timing() -> None:
+                        started_at = time.monotonic()
+                        logger.info(
+                            "voice TTS playback starting: turn_id=%s provider=%s chars=%d",
+                            turn_id,
+                            _tts_provider_name(),
+                            len(spoken),
+                        )
+                        try:
+                            speak_text(spoken)
+                        finally:
+                            logger.info(
+                                "voice TTS playback done: turn_id=%s elapsed_ms=%d",
+                                turn_id,
+                                int((time.monotonic() - started_at) * 1000),
+                            )
+
                     threading.Thread(
-                        target=speak_text, args=(spoken,), daemon=True
+                        target=_speak_with_timing, daemon=True
                     ).start()
                 except ImportError:
                     logger.warning("voice TTS skipped: hermes_cli.voice unavailable")
@@ -8137,6 +8183,55 @@ def _(rid, params: dict) -> dict:
         if qc.get("type") == "alias":
             return _ok(rid, {"type": "alias", "target": qc.get("target", "")})
 
+    if name == "stream":
+        try:
+            from hermes_cli.stream_assistant import (
+                apply_stream_mode,
+                format_apply_result,
+                format_status,
+                stream_mode_status,
+            )
+        except Exception as exc:
+            return _err(rid, 5030, f"stream assistant unavailable: {exc}")
+
+        subcommand = (arg or "status").strip().lower()
+        if subcommand in {"status", ""}:
+            output = format_status(stream_mode_status(_load_cfg()))
+            output += "\n\nRuntime"
+            output += f"\n  Voice mode:            {'ON' if _voice_mode_enabled() else 'OFF'}"
+            output += f"\n  Voice TTS:             {'ON' if _voice_tts_enabled() else 'OFF'}"
+            output += f"\n  Streaming STT running: {'ON' if _streaming_stt_is_running() else 'OFF'}"
+            overlay_url = _ensure_live_overlay_server()
+            if overlay_url:
+                output += f"\n  Overlay URL:           {overlay_url}"
+            return _ok(rid, {"type": "exec", "output": output})
+        if subcommand in {"game", "gaming", "実況", "ゲーム", "gameplay"}:
+            result = apply_stream_mode("game")
+            if result.get("success"):
+                global _cfg_cache, _cfg_mtime, _cfg_path
+                with _cfg_lock:
+                    _cfg_cache = None
+                    _cfg_mtime = None
+                    _cfg_path = None
+                os.environ["HERMES_VOICE"] = "1"
+                os.environ["HERMES_VOICE_TTS"] = "1"
+                overlay_url = _ensure_live_overlay_server()
+                try:
+                    if _streaming_stt_enabled() and _streaming_stt_always_on():
+                        _start_streaming_stt()
+                except Exception as exc:
+                    result = dict(result)
+                    result["success"] = False
+                    result["error"] = f"streaming STT failed to start: {exc}"
+                output = format_apply_result(result)
+                if overlay_url:
+                    output += f"\n  overlay: {overlay_url}"
+                if result.get("success"):
+                    output += "\n  voice: ON\n  voice TTS: ON"
+                return _ok(rid, {"type": "exec", "output": output})
+            return _err(rid, 5031, format_apply_result(result))
+        return _err(rid, 4004, "usage: /stream [game|status]")
+
     try:
         from hermes_cli.plugins import (
             get_plugin_command_handler,
@@ -9303,6 +9398,14 @@ def _voice_tts_enabled() -> bool:
     return os.environ.get("HERMES_VOICE_TTS", "").strip() == "1"
 
 
+def _tts_provider_name() -> str:
+    cfg = _load_cfg()
+    tts_cfg = cfg.get("tts") if isinstance(cfg, dict) else None
+    if not isinstance(tts_cfg, dict):
+        return ""
+    return str(tts_cfg.get("provider") or "").strip().lower()
+
+
 def _fish_audio_streaming_tts_enabled() -> bool:
     cfg = _load_cfg()
     tts_cfg = cfg.get("tts") if isinstance(cfg, dict) else None
@@ -9509,6 +9612,7 @@ def _ensure_live_overlay_server() -> str | None:
 
 def _emit_voice_transcript(text: str) -> None:
     _publish_live_overlay_caption(text, final=True)
+    logger.info("voice transcript emitted: chars=%d text=%r", len(text or ""), text)
     _voice_emit("voice.transcript", {"text": text})
 
 
@@ -9991,7 +10095,9 @@ def _(rid, params: dict) -> dict:
             "record_key": _voice_record_key(),
             "streaming_always_on": _streaming_stt_enabled()
             and _streaming_stt_always_on(),
+            "streaming_running": _streaming_stt_is_running(),
             "tts": _voice_tts_enabled(),
+            "tts_provider": _tts_provider_name(),
         }
         overlay_url = _ensure_live_overlay_server()
         if overlay_url:

@@ -7,6 +7,8 @@ import { findSlashCommand } from './slash/registry.js'
 import type { SlashRunCtx } from './slash/types.js'
 import { getUiState } from './uiStore.js'
 
+const DIRECT_DISPATCH_COMMANDS = new Set(['stream'])
+
 export function createSlashHandler(ctx: SlashHandlerContext): (cmd: string) => boolean {
   const { gw } = ctx.gateway
   const { catalog } = ctx.local
@@ -74,6 +76,62 @@ export function createSlashHandler(ctx: SlashHandlerContext): (cmd: string) => b
       }
     }
 
+    const dispatchCommand = () => {
+      gw.request('command.dispatch', { arg: parsed.arg, name: parsed.name, session_id: sid })
+        .then((raw: unknown) => {
+          if (stale()) {
+            return
+          }
+
+          const d = asCommandDispatch(raw)
+
+          if (!d) {
+            return sys('error: invalid response: command.dispatch')
+          }
+
+          if (d.type === 'exec' || d.type === 'plugin') {
+            return sys(d.output || '(no output)')
+          }
+
+          if (d.type === 'alias') {
+            return handler(`/${d.target}${argTail}`)
+          }
+
+          if (d.type === 'skill') {
+            sys(`⚡ loading skill: ${d.name}`)
+
+            return d.message?.trim() ? send(d.message) : sys(`/${parsed.name}: skill payload missing message`)
+          }
+
+          if (d.type === 'send') {
+            if (d.notice?.trim()) {
+              sys(d.notice)
+            }
+            return d.message?.trim() ? send(d.message) : sys(`/${parsed.name}: empty message`)
+          }
+
+          if (d.type === 'prefill') {
+            // /undo returns prefill: drop the backed-up message text into
+            // the composer so the user can edit and resubmit, instead of
+            // submitting it immediately like 'send'.
+            if (d.notice?.trim()) {
+              sys(d.notice)
+            }
+            if (d.message) {
+              ctx.composer.setInput(d.message)
+            }
+            return
+          }
+        })
+        .catch(guardedErr)
+    }
+
+    if (DIRECT_DISPATCH_COMMANDS.has(parsed.name.toLowerCase())) {
+      dispatchCommand()
+
+      return true
+    }
+
     gw.request<SlashExecResponse>('slash.exec', { command: cmd.slice(1), session_id: sid })
       .then(r => {
         if (stale()) {
@@ -87,53 +145,7 @@ export function createSlashHandler(ctx: SlashHandlerContext): (cmd: string) => b
         long ? page(text, parsed.name[0]!.toUpperCase() + parsed.name.slice(1)) : sys(text)
       })
       .catch(() => {
-        gw.request('command.dispatch', { arg: parsed.arg, name: parsed.name, session_id: sid })
-          .then((raw: unknown) => {
-            if (stale()) {
-              return
-            }
-
-            const d = asCommandDispatch(raw)
-
-            if (!d) {
-              return sys('error: invalid response: command.dispatch')
-            }
-
-            if (d.type === 'exec' || d.type === 'plugin') {
-              return sys(d.output || '(no output)')
-            }
-
-            if (d.type === 'alias') {
-              return handler(`/${d.target}${argTail}`)
-            }
-
-            if (d.type === 'skill') {
-              sys(`⚡ loading skill: ${d.name}`)
-
-              return d.message?.trim() ? send(d.message) : sys(`/${parsed.name}: skill payload missing message`)
-            }
-
-            if (d.type === 'send') {
-              if (d.notice?.trim()) {
-                sys(d.notice)
-              }
-              return d.message?.trim() ? send(d.message) : sys(`/${parsed.name}: empty message`)
-            }
-
-            if (d.type === 'prefill') {
-              // /undo returns prefill: drop the backed-up message text into
-              // the composer so the user can edit and resubmit, instead of
-              // submitting it immediately like 'send'.
-              if (d.notice?.trim()) {
-                sys(d.notice)
-              }
-              if (d.message) {
-                ctx.composer.setInput(d.message)
-              }
-              return
-            }
-          })
-          .catch(guardedErr)
+        dispatchCommand()
       })
 
     return true

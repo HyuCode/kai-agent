@@ -172,6 +172,19 @@ streaming_stt:
     chunk_ms: 100
 ```
 
+`/stream game` のゲーム実況プリセットでは、実配信の掛け合いを優先して以下の
+submit 設定へ寄せる。Deepgram が `speech_final=true` を返さないケースでも、
+無音時間で会話ターンを確定し、短い「こんにちは」も agent に送る。
+
+```yaml
+streaming_stt:
+  submit:
+    min_chars: 4
+    debounce_ms: 1200
+    max_wait_ms: 4000
+    require_speech_final: false
+```
+
 API key:
 
 - `DEEPGRAM_API_KEY` を `~/.hermes/.env` に設定する。
@@ -355,6 +368,36 @@ plugin か専用 streaming interface を追加する。
 
 - Fish Audio TTS でアシスタント音声を生成する。
 - 設定された voice model `reference_id` に対応する。
+
+### 2.1 AquesTalk TTS 運用メモ
+
+AquesTalk はローカル TTS provider として利用できるが、自然文の漢字混じりテキストを
+そのまま渡すと `Failed to synthesize speech` になることがある。そのため
+`tts.aquestalk.koe_generation` で OpenAI-compatible なローカルLLMに読み文字列へ
+変換させる前提にする。
+
+現状の注意点:
+
+- 読み変換LLMが不通の場合、TTS開始前に timeout 分だけ遅延する。
+- fallback は辞書と決定的正規化を使うが、未知の漢字は正確に読めない。
+- AquesTalk CLI が失敗した場合は、AquesTalkが読める文字に絞って再試行する。
+  これは音声が無音になることを避ける安全網であり、読み品質の保証ではない。
+- 配信本番では、ローカルLLMの到達性と辞書DBの整備を事前に検証する。
+
+### 2.2 音声ターンの観測ログ
+
+TUI では `agent.log` に turn 単位の計測ログを出す。配信中に「返答が遅い」
+「TTSが鳴らない」を切り分ける時は、同じ `turn_id` を追う。
+
+- `voice streaming STT ...`: Deepgram transcript の受信、submit 判定、pending commit。
+- `voice transcript emitted`: agent に渡す voice transcript の確定。
+- `tui turn started`: agent turn 開始。`voice_tts` と `fish_streaming_tts` も出す。
+- `tui turn llm complete`: LLM 応答完了。`llm_ms` がモデル応答時間。
+- `tui turn message complete`: TUI への final response 表示完了。
+- `voice TTS playback starting/done`: 非streaming TTS の再生処理開始/完了。
+
+`/stream status` は設定値に加えて runtime の `Voice mode`、`Voice TTS`、
+`Streaming STT running`、`Overlay URL` を表示する。
 - Fish Audio の `model` ヘッダーを設定で切り替えられるようにする。初期値は `s2-pro`。
 - 汎用再生用に `mp3`、低遅延や voice-message delivery 用に必要なら `opus` に対応する。
 - Hermes や platform が完全な音声ファイルを期待する場合は file output に fallback する。
@@ -725,12 +768,14 @@ stream_assistant:
 
 ### Phase 4: Stream Persona Skill
 
-- `skills/media/youtube-live-assistant/SKILL.md` などを追加する。
-- TTS、overlay、chat reply routing の例を入れる。
-- ネタバレと安全性のルールを入れる。
-- game-state memory の規約を入れる。
-- 選別チャット表示とアシスタント反応の手順を入れる。
-- obs scene switching を行う条件を入れる。
+- [x] `skills/media/youtube-live-assistant/SKILL.md` などを追加する。
+- [x] TTS、overlay、chat reply routing の例を入れる。
+- [x] ネタバレと安全性のルールを入れる。
+- [x] game-state memory の規約を入れる。
+- [x] 選別チャット表示とアシスタント反応の手順を入れる。
+- [x] obs scene switching を行う条件を入れる。
+- [x] `/stream game` でゲーム実況に必要な voice / TTS / streaming STT /
+  overlay 設定を一括有効化する。
 
 検証:
 

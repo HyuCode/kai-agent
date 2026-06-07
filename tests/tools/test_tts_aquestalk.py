@@ -177,6 +177,33 @@ def test_aquestalk_generation_logs_quality_metrics(tmp_path, caplog):
     assert "AquesTalk TTS text original='こんにちは。' prepared='こんにちわ。'" in caplog.text
 
 
+def test_aquestalk_generation_retries_with_sanitized_text(tmp_path):
+    from tools.tts_tool import _generate_aquestalk_tts
+
+    output_path = tmp_path / "out.wav"
+    calls = []
+
+    def fake_run(text, **_kwargs):
+        calls.append(text)
+        if len(calls) == 1:
+            raise RuntimeError("Failed to synthesize speech")
+        return b"RIFFwav"
+
+    with patch("tools.tts_tool._run_aquestalk_cli", side_effect=fake_run):
+        result = _generate_aquestalk_tts(
+            "もちろんです。今ここにいます、どうしました？",
+            str(output_path),
+            {"aquestalk": {"cli_path": "/bin/echo", "koe_generation": {"enabled": False}}},
+        )
+
+    assert result == str(output_path)
+    assert calls == [
+        "もちろんです。今ここにいます、どうしました？",
+        "もちろんです。ここにいます、どうしました？",
+    ]
+    assert output_path.read_bytes() == b"RIFFwav"
+
+
 def test_aquestalk_wav_generation_writes_cli_stdout(tmp_path):
     from tools.tts_tool import _generate_aquestalk_tts
 

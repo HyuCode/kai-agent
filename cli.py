@@ -7658,6 +7658,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._handle_skin_command(cmd_original)
         elif canonical == "voice":
             self._handle_voice_command(cmd_original)
+        elif canonical == "stream":
+            self._handle_stream_command(cmd_original)
         elif canonical == "busy":
             self._handle_busy_command(cmd_original)
         else:
@@ -9361,6 +9363,43 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
             self._voice_tts_done.set()
 
 
+    def _handle_stream_command(self, command: str):
+        """Handle /stream [game|status] command."""
+        parts = command.strip().split(maxsplit=1)
+        subcommand = parts[1].lower().strip() if len(parts) > 1 else "status"
+
+        try:
+            from hermes_cli.config import load_config
+            from hermes_cli.stream_assistant import (
+                apply_stream_mode,
+                format_apply_result,
+                format_status,
+                stream_mode_status,
+            )
+        except Exception as exc:
+            _cprint(f"Stream assistant unavailable: {exc}")
+            return
+
+        if subcommand in {"status", ""}:
+            _cprint(format_status(stream_mode_status(load_config())))
+            return
+
+        if subcommand in {"game", "gaming", "実況", "ゲーム", "gameplay"}:
+            result = apply_stream_mode("game", saver=save_config_value)
+            logger.info("stream assistant mode apply: mode=game success=%s", result.get("success"))
+            _cprint(format_apply_result(result))
+            if result.get("success"):
+                if self._voice_mode:
+                    with self._voice_lock:
+                        self._voice_tts = True
+                    _cprint(f"{_ACCENT}Voice TTS enabled.{_RST}")
+                else:
+                    self._enable_voice_mode()
+            return
+
+        _cprint(f"Unknown stream subcommand: {subcommand}")
+        _cprint("Usage: /stream [game|status]")
+
     def _voice_beeps_enabled(self) -> bool:
         """Return whether CLI voice mode should play record start/stop beeps."""
         try:
@@ -9407,7 +9446,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin):
         def _on_partial(text: str) -> None:
             if not text:
                 return
-            _cprint(f"\r{_DIM}voice partial: {text}{_RST}", end="")
+            _cprint(f"{_DIM}voice partial: {text}{_RST}")
             if hasattr(self, "_app") and self._app:
                 self._app.invalidate()
 

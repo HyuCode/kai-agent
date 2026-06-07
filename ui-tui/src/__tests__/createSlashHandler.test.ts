@@ -557,6 +557,37 @@ describe('createSlashHandler', () => {
     })
   })
 
+  it('/stream game uses command.dispatch directly so gateway voice state changes', async () => {
+    const ctx = buildCtx({
+      gateway: {
+        gw: {
+          getLogTail: vi.fn(() => ''),
+          request: vi.fn((method: string) => {
+            if (method === 'command.dispatch') {
+              return Promise.resolve({ type: 'exec', output: 'voice: ON\nvoice TTS: ON' })
+            }
+
+            return Promise.resolve({ output: 'wrong path' })
+          })
+        },
+        rpc: vi.fn(() => Promise.resolve({}))
+      }
+    })
+
+    const h = createSlashHandler(ctx)
+    expect(h('/stream game')).toBe(true)
+
+    await vi.waitFor(() => {
+      expect(ctx.gateway.gw.request).toHaveBeenCalledWith('command.dispatch', {
+        arg: 'game',
+        name: 'stream',
+        session_id: null
+      })
+    })
+    expect(ctx.gateway.gw.request).not.toHaveBeenCalledWith('slash.exec', expect.anything())
+    expect(ctx.transcript.sys).toHaveBeenCalledWith('voice: ON\nvoice TTS: ON')
+  })
+
   it('resolves unique local aliases through the catalog', () => {
     const ctx = buildCtx({
       local: {
