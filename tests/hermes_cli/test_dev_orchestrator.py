@@ -139,6 +139,23 @@ def test_add_repository_rejects_unknown_worker(tmp_path):
     assert "unknown worker" in result["error"]
 
 
+def test_load_repositories_defaults_without_dev_section(tmp_path, monkeypatch):
+    """The TUI gateway passes raw config.yaml (no DEFAULT_CONFIG merge);
+    worktree_root and worker must still resolve (#regression: /dev run
+    failed with 'no worktree_root configured')."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    (repo_path / ".git").mkdir()
+
+    repos = load_repositories({"repositories": {"repo": {"local_path": str(repo_path)}}})
+
+    assert repos[0].worker == "codex"
+    assert repos[0].worktree_root == str(home / "dev-worktrees" / "repo")
+
+
 def test_load_repositories_normalizes_worker_aliases(tmp_path):
     repo_path = tmp_path / "repo"
     repo_path.mkdir()

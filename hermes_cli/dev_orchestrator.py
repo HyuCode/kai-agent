@@ -146,8 +146,10 @@ def _git_default_branch(path: Path) -> str:
 def load_repositories(config: dict[str, Any] | None) -> list[RepositoryInfo]:
     repos: list[RepositoryInfo] = []
     dev = _dev_config(config)
-    default_worktree_root = str(dev.get("worktree_root") or "")
-    default_worker = str(dev.get("default_worker") or "")
+    # Callers like the TUI gateway pass the raw config.yaml (no
+    # DEFAULT_CONFIG merge), so fall back to the documented defaults here.
+    default_worktree_root = str(dev.get("worktree_root") or "") or str(_hermes_home() / "dev-worktrees")
+    default_worker = str(dev.get("default_worker") or "") or "codex"
     for repo_id, raw in sorted(_repo_config(config).items()):
         if not isinstance(raw, dict):
             continue
@@ -163,7 +165,7 @@ def load_repositories(config: dict[str, Any] | None) -> list[RepositoryInfo]:
             github = github or _git_remote_github(path)
             default_branch = default_branch or _git_default_branch(path)
         worktree_root = str(raw.get("worktree_root") or "").strip()
-        if not worktree_root and default_worktree_root:
+        if not worktree_root:
             worktree_root = str(_expand_path(default_worktree_root) / str(repo_id))
         repos.append(
             RepositoryInfo(
