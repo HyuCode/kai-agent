@@ -39,6 +39,8 @@ _DEV_META_RE = re.compile(r"```dev-task-meta\s*\n(\{.*?\})\s*\n```", re.DOTALL)
 _TITLE_MAX_CHARS = 80
 _DEFAULT_WORKER_TIMEOUT_SECONDS = 1800
 _OUTPUT_TAIL_CHARS = 4000
+_GH_TIMEOUT_SECONDS = 60
+_ISSUE_BODY_MAX_CHARS = 2000
 
 
 @dataclass(frozen=True)
@@ -285,6 +287,7 @@ def assign_dev_task(
     *,
     worker: str = "",
     requested_by: str = "cli",
+    extra_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cleaned = str(task_text or "").strip()
     if not cleaned:
@@ -313,7 +316,10 @@ def assign_dev_task(
         "notify_voice": True,
         "last_reported_event_id": None,
     }
-    title = cleaned if len(cleaned) <= _TITLE_MAX_CHARS else cleaned[: _TITLE_MAX_CHARS - 3] + "..."
+    if extra_meta:
+        meta.update(extra_meta)
+    title = cleaned.splitlines()[0]
+    title = title if len(title) <= _TITLE_MAX_CHARS else title[: _TITLE_MAX_CHARS - 3] + "..."
     try:
         from hermes_cli import kanban_db as kb
 
@@ -708,6 +714,273 @@ def format_run_result(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _run_external(command: list[str], *, timeout: int = _GH_TIMEOUT_SECONDS) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        text=True,
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def _require_gh(repo: RepositoryInfo) -> str:
+    """Return an error message when gh-based operations cannot run."""
+    if shutil.which("gh") is None:
+        return "gh CLI not found (install GitHub CLI and run: gh auth login)"
+    if not repo.github:
+        return f"no GitHub remote configured for repository: {repo.repo_id}"
+    return ""
+
+
+def list_github_issues(
+    config: dict[str, Any] | None,
+    repo_id: str,
+    *,
+    limit: int = 10,
+    runner: Opener | None = None,
+) -> dict[str, Any]:
+    repo = get_repository(config, repo_id)
+    if repo is None:
+        return {"success": False, "error": f"repository not found: {repo_id}"}
+    blocked = _require_gh(repo)
+    if blocked:
+        return {"success": False, "error": blocked}
+    run = runner or _run_external
+    try:
+        proc = run(["gh", "-R", repo.github, "issue", "list", "--limit", str(limit), "--json", "number,title,state"])
+    except Exception as exc:
+        return {"success": False, "error": f"gh issue list failed: {exc}"}
+    if proc.returncode != 0:
+        return {"success": False, "error": (proc.stderr or proc.stdout or "gh issue list failed").strip()}
+    try:
+        issues = json.loads(proc.stdout or "[]")
+    except Exception:
+        return {"success": False, "error": "could not parse gh issue list output"}
+    return {"success": True, "issues": issues if isinstance(issues, list) else []}
+
+
+def view_github_issue(
+    config: dict[str, Any] | None,
+    repo_id: str,
+    number: int,
+    *,
+    runner: Opener | None = None,
+) -> dict[str, Any]:
+    repo = get_repository(config, repo_id)
+    if repo is None:
+        return {"success": False, "error": f"repository not found: {repo_id}"}
+    blocked = _require_gh(repo)
+    if blocked:
+        return {"success": False, "error": blocked}
+    run = runner or _run_external
+    try:
+        proc = run(["gh", "-R", repo.github, "issue", "view", str(int(number)), "--json", "number,title,body,state,url"])
+    except Exception as exc:
+        return {"success": False, "error": f"gh issue view failed: {exc}"}
+    if proc.returncode != 0:
+        return {"success": False, "error": (proc.stderr or proc.stdout or "gh issue view failed").strip()}
+    try:
+        issue = json.loads(proc.stdout or "{}")
+    except Exception:
+        return {"success": False, "error": "could not parse gh issue view output"}
+    if not isinstance(issue, dict) or "number" not in issue:
+        return {"success": False, "error": f"issue not found: #{number}"}
+    return {"success": True, "issue": issue}
+
+
+def format_issues(issues: list[dict[str, Any]], repo_id: str) -> str:
+    if not issues:
+        return f"GitHub issues ({repo_id})\n  (none open)"
+    lines = [f"GitHub issues ({repo_id})"]
+    for issue in issues:
+        lines.append(f"  - #{issue.get('number')} [{issue.get('state', '').lower()}] {issue.get('title', '')}")
+    return "\n".join(lines)
+
+
+def format_issue(issue: dict[str, Any]) -> str:
+    body = str(issue.get("body") or "").strip()
+    if len(body) > _ISSUE_BODY_MAX_CHARS:
+        body = body[:_ISSUE_BODY_MAX_CHARS] + "\n... (truncated)"
+    return "\n".join(
+        [
+            f"Issue #{issue.get('number')}: {issue.get('title', '')}",
+            f"  State: {str(issue.get('state', '')).lower()}",
+            f"  URL:   {issue.get('url', '')}",
+            "",
+            body or "(no description)",
+        ]
+    )
+
+
+def assign_dev_task_from_issue(
+    config: dict[str, Any] | None,
+    repo_id: str,
+    number: int,
+    *,
+    worker: str = "",
+    requested_by: str = "cli",
+    runner: Opener | None = None,
+) -> dict[str, Any]:
+    fetched = view_github_issue(config, repo_id, number, runner=runner)
+    if not fetched.get("success"):
+        return fetched
+    issue = fetched["issue"]
+    body = str(issue.get("body") or "").strip()
+    if len(body) > _ISSUE_BODY_MAX_CHARS:
+        body = body[:_ISSUE_BODY_MAX_CHARS]
+    text = f"GitHub Issue #{issue['number']}: {issue.get('title', '')}"
+    if body:
+        text += f"\n\n{body}"
+    return assign_dev_task(
+        config,
+        repo_id,
+        text,
+        worker=worker,
+        requested_by=requested_by,
+        extra_meta={"issue": int(issue["number"]), "issue_url": str(issue.get("url") or "")},
+    )
+
+
+def create_dev_pr(
+    config: dict[str, Any] | None,
+    task_id: str,
+    *,
+    confirm: bool = False,
+    runner: Opener | None = None,
+) -> dict[str, Any]:
+    """Push a finished dev task's branch and create a GitHub PR.
+
+    Without ``confirm`` this only previews the outward-facing actions
+    (push, gh pr create) — both stay approval-gated per the plan.
+    """
+    from hermes_cli import kanban_db as kb
+
+    clean_id = str(task_id or "").strip()
+    if not clean_id:
+        return {"success": False, "error": "usage: /dev pr <task_id> [--confirm]"}
+    with kb.connect_closing() as conn:
+        task = kb.get_task(conn, clean_id)
+    if task is None:
+        return {"success": False, "error": f"task not found: {clean_id}"}
+    meta = parse_dev_task_metadata(task.body)
+    if meta.get("kind") != "dev_task":
+        return {"success": False, "error": f"not a dev task: {clean_id}"}
+    if task.status not in {"done", "review"}:
+        return {"success": False, "error": f"task is not finished (status: {task.status}); run it first with /dev run"}
+    if meta.get("pr"):
+        return {"success": False, "error": f"PR already exists: {meta['pr']}"}
+    branch = str(meta.get("branch") or "")
+    worktree_path = str(meta.get("worktree_path") or "")
+    if not branch or not worktree_path or not Path(worktree_path).is_dir():
+        return {"success": False, "error": "task has no usable worktree; run it first with /dev run"}
+    repo = get_repository(config, str(meta.get("repo_id") or ""))
+    if repo is None:
+        return {"success": False, "error": f"repository not found: {meta.get('repo_id')}"}
+    blocked = _require_gh(repo)
+    if blocked:
+        return {"success": False, "error": blocked}
+    base = repo.default_branch or "main"
+    dev = _dev_config(config)
+    commit_gated = bool(dev.get("require_approval_for_commit", False))
+
+    def _counts() -> tuple[int, int]:
+        status = _run_git(["-C", worktree_path, "status", "--porcelain"])
+        uncommitted = len([line for line in (status.stdout or "").splitlines() if line.strip()])
+        ahead_proc = _run_git(["-C", worktree_path, "rev-list", "--count", f"{base}..HEAD"])
+        ahead = int((ahead_proc.stdout or "0").strip() or 0) if ahead_proc.returncode == 0 else 0
+        return uncommitted, ahead
+
+    uncommitted, ahead = _counts()
+    if uncommitted and commit_gated:
+        return {
+            "success": False,
+            "error": (
+                f"worktree has {uncommitted} uncommitted file(s) and auto-commit is disabled "
+                "(dev_orchestrator.require_approval_for_commit); commit manually, then retry"
+            ),
+        }
+    if not uncommitted and ahead == 0:
+        return {"success": False, "error": "no changes to publish (no commits ahead of base, no uncommitted files)"}
+
+    planned = []
+    if uncommitted:
+        planned.append(f"commit {uncommitted} uncommitted file(s) on {branch}")
+    planned.append(f"push {branch} to origin ({repo.github})")
+    planned.append(f"create PR {branch} -> {base}: {task.title}")
+    if not confirm:
+        return {
+            "success": True,
+            "status": "preview",
+            "task_id": clean_id,
+            "planned": planned,
+            "output": "\n".join(
+                [
+                    f"PR preview for {clean_id} ({ahead} commit(s) ahead of {base}):",
+                    *[f"  - {step}" for step in planned],
+                    "",
+                    f"Run `/dev pr {clean_id} --confirm` to push and create the PR.",
+                ]
+            ),
+        }
+
+    run = runner or _run_external
+    if uncommitted:
+        added = _run_git(["-C", worktree_path, "add", "-A"])
+        committed = _run_git(["-C", worktree_path, "commit", "-m", task.title])
+        if added.returncode != 0 or committed.returncode != 0:
+            detail = (committed.stderr or committed.stdout or added.stderr or "git commit failed").strip()
+            return {"success": False, "error": f"failed to commit worker changes: {detail}"}
+        _, ahead = _counts()
+    try:
+        pushed = run(["git", "-C", worktree_path, "push", "-u", "origin", branch])
+    except Exception as exc:
+        return {"success": False, "error": f"git push failed: {exc}"}
+    if pushed.returncode != 0:
+        return {"success": False, "error": (pushed.stderr or pushed.stdout or "git push failed").strip()}
+
+    body_lines = [f"Dev task `{clean_id}` (worker={meta.get('worker') or '-'}), created by the Hermes dev orchestrator."]
+    if meta.get("change_summary"):
+        body_lines.append(f"\nChange summary: {meta['change_summary']}")
+    if meta.get("issue"):
+        body_lines.append(f"\nCloses #{meta['issue']}")
+    try:
+        created = run(
+            [
+                "gh", "-R", repo.github, "pr", "create",
+                "--head", branch,
+                "--base", base,
+                "--title", task.title,
+                "--body", "\n".join(body_lines),
+            ]
+        )
+    except Exception as exc:
+        return {"success": False, "error": f"gh pr create failed: {exc}"}
+    if created.returncode != 0:
+        return {"success": False, "error": (created.stderr or created.stdout or "gh pr create failed").strip()}
+    url = ""
+    for line in reversed((created.stdout or "").strip().splitlines()):
+        if line.strip().startswith("https://"):
+            url = line.strip()
+            break
+    meta["pr"] = url or "(created)"
+    try:
+        _update_task_meta(clean_id, meta)
+    except Exception:
+        pass
+    return {
+        "success": True,
+        "status": "created",
+        "task_id": clean_id,
+        "branch": branch,
+        "base": base,
+        "ahead": ahead,
+        "pr_url": url,
+        "output": f"PR created for {clean_id}: {url or '(no URL reported)'}",
+    }
+
+
 def _vscode_command(config: dict[str, Any] | None, path: str) -> list[str]:
     dev = _dev_config(config)
     vscode = dev.get("vscode")
@@ -795,9 +1068,10 @@ def handle_dev_command(
         if len(parts) < 3:
             return {
                 "success": False,
-                "error": "usage: /dev assign <repo_id> <task description> [--worker codex|claude|hermes]",
+                "error": "usage: /dev assign <repo_id> <task description | --issue <number>> [--worker codex|claude|hermes]",
             }
         worker = ""
+        issue = ""
         words: list[str] = []
         rest = parts[2:]
         idx = 0
@@ -805,10 +1079,18 @@ def handle_dev_command(
             if rest[idx] == "--worker" and idx + 1 < len(rest):
                 worker = rest[idx + 1]
                 idx += 2
+            elif rest[idx] == "--issue" and idx + 1 < len(rest):
+                issue = rest[idx + 1]
+                idx += 2
             else:
                 words.append(rest[idx])
                 idx += 1
-        result = assign_dev_task(config, parts[1], " ".join(words), worker=worker)
+        if issue:
+            if not issue.isdigit():
+                return {"success": False, "error": f"--issue expects a number, got: {issue}"}
+            result = assign_dev_task_from_issue(config, parts[1], int(issue), worker=worker)
+        else:
+            result = assign_dev_task(config, parts[1], " ".join(words), worker=worker)
         if result.get("success"):
             return {
                 "success": True,
@@ -835,6 +1117,29 @@ def handle_dev_command(
             "output": format_run_result(result),
             "error": result.get("error"),
         }
+    if sub == "issue":
+        if len(parts) < 2:
+            return {"success": False, "error": "usage: /dev issue <repo_id> [list|<number>]"}
+        selector = parts[2] if len(parts) > 2 else "list"
+        if selector == "list":
+            result = list_github_issues(config, parts[1])
+            if result.get("success"):
+                return {"success": True, "output": format_issues(result["issues"], parts[1])}
+            return {"success": False, "error": result.get("error")}
+        if selector.lstrip("#").isdigit():
+            result = view_github_issue(config, parts[1], int(selector.lstrip("#")))
+            if result.get("success"):
+                return {"success": True, "output": format_issue(result["issue"])}
+            return {"success": False, "error": result.get("error")}
+        return {"success": False, "error": "usage: /dev issue <repo_id> [list|<number>]"}
+    if sub == "pr":
+        if len(parts) < 2:
+            return {"success": False, "error": "usage: /dev pr <task_id> [--confirm]"}
+        confirm = "--confirm" in parts[2:] or "--yes" in parts[2:]
+        result = create_dev_pr(config, parts[1], confirm=confirm)
+        if result.get("success"):
+            return {"success": True, "output": str(result.get("output") or "")}
+        return {"success": False, "error": result.get("error")}
     if sub in {"repos", "repositories"}:
         return {"success": True, "output": format_repositories(load_repositories(config))}
     if sub == "repo":
@@ -879,4 +1184,4 @@ def handle_dev_command(
             return {"success": False, "error": "usage: /dev open <repo_id>"}
         result = open_repository(config, parts[1], opener=opener)
         return {"success": bool(result.get("success")), "output": format_open_result(result), "error": result.get("error")}
-    return {"success": False, "error": "usage: /dev [status|repos|repo show|repo add|assign|tasks|run|open]"}
+    return {"success": False, "error": "usage: /dev [status|repos|repo show|repo add|assign|tasks|run|issue|pr|open]"}

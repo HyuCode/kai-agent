@@ -5,6 +5,8 @@ import pytest
 from hermes_cli.dev_orchestrator import (
     add_repository,
     assign_dev_task,
+    assign_dev_task_from_issue,
+    create_dev_pr,
     create_task_worktree,
     format_repositories,
     get_repository,
@@ -397,3 +399,125 @@ def test_run_dev_task_rejects_hermes_worker(worker_env):
 
     assert result["success"] is False
     assert "not implemented" in result["error"]
+
+
+def _with_github(config):
+    for repo in config["repositories"].values():
+        repo["github"] = "seiichi3141/proj"
+    return config
+
+
+def test_assign_dev_task_from_issue_embeds_issue_metadata(worker_env):
+    config = _with_github(worker_env)
+
+    def fake_gh(command):
+        assert command[:2] == ["gh", "-R"]
+        assert "view" in command
+        payload = '{"number": 42, "title": "Fix TTS crash", "body": "It crashes.", "state": "OPEN", "url": "https://github.com/seiichi3141/proj/issues/42"}'
+        return subprocess.CompletedProcess(command, 0, stdout=payload, stderr="")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/gh")
+        result = assign_dev_task_from_issue(config, "proj", 42, runner=fake_gh)
+
+    assert result["success"] is True
+    items = list_dev_tasks(config)
+    assert items[0]["issue"] == 42
+    assert "Fix TTS crash" in items[0]["title"]
+
+
+def _finished_task_with_commit(config, text="Publish me"):
+    created = assign_dev_task(config, "proj", text)
+    task_id = created["task_id"]
+
+    def fake_worker(command):
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/x")
+        run_result = run_dev_task(config, task_id, runner=fake_worker)
+    worktree = run_result["worktree_path"]
+    from pathlib import Path
+
+    Path(worktree, "feature.txt").write_text("new\n")
+    _git(Path(worktree), "add", "feature.txt")
+    _git(Path(worktree), "commit", "-q", "-m", "add feature")
+    return task_id, worktree
+
+
+def test_create_dev_pr_preview_requires_confirm(worker_env):
+    config = _with_github(worker_env)
+    task_id, _ = _finished_task_with_commit(config)
+
+    calls = []
+
+    def fake_external(command):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/gh")
+        result = create_dev_pr(config, task_id, confirm=False, runner=fake_external)
+
+    assert result["success"] is True
+    assert result["status"] == "preview"
+    assert "--confirm" in result["output"]
+    assert calls == []  # no outward-facing command without confirm
+
+
+def test_create_dev_pr_confirm_pushes_and_saves_url(worker_env):
+    config = _with_github(worker_env)
+    task_id, _ = _finished_task_with_commit(config)
+
+    calls = []
+
+    def fake_external(command):
+        calls.append(command)
+        if command[0] == "gh":
+            return subprocess.CompletedProcess(command, 0, stdout="https://github.com/seiichi3141/proj/pull/7\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/gh")
+        result = create_dev_pr(config, task_id, confirm=True, runner=fake_external)
+
+    assert result["success"] is True
+    assert result["pr_url"] == "https://github.com/seiichi3141/proj/pull/7"
+    assert calls[0][:2] == ["git", "-C"]
+    assert "push" in calls[0]
+    assert calls[1][0] == "gh"
+
+    items = list_dev_tasks(config)
+    assert items[0]["pr"] == "https://github.com/seiichi3141/proj/pull/7"
+
+    again = create_dev_pr(config, task_id, confirm=True, runner=fake_external)
+    assert again["success"] is False
+    assert "PR already exists" in again["error"]
+
+
+def test_create_dev_pr_blocks_uncommitted_when_commit_gated(worker_env):
+    config = _with_github(worker_env)
+    config["dev_orchestrator"]["require_approval_for_commit"] = True
+    task_id, worktree = _finished_task_with_commit(config)
+    from pathlib import Path
+
+    Path(worktree, "dirty.txt").write_text("dirty\n")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/gh")
+        result = create_dev_pr(config, task_id, confirm=True, runner=lambda c: pytest.fail("must not run external commands"))
+
+    assert result["success"] is False
+    assert "uncommitted" in result["error"]
+
+
+def test_create_dev_pr_rejects_unfinished_task(worker_env):
+    config = _with_github(worker_env)
+    created = assign_dev_task(config, "proj", "Not run yet")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/gh")
+        result = create_dev_pr(config, created["task_id"], confirm=True)
+
+    assert result["success"] is False
+    assert "not finished" in result["error"]
