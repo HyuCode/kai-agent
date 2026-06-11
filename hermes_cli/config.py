@@ -1850,7 +1850,7 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "default_worker": "codex",  # codex | claude | hermes
         "worktree_root": "~/.hermes/dev-worktrees",
-        "worker_timeout_seconds": 1800,
+        "worker_timeout_seconds": 3600,
         # Push the task branch and open a GitHub PR automatically after a
         # successful worker run (opt-in; equivalent to /dev pr --confirm).
         "auto_create_pr": False,

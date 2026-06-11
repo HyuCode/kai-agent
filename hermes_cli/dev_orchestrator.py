@@ -38,7 +38,7 @@ def normalize_worker(value: str) -> str:
 DEV_TENANT = "dev"
 _DEV_META_RE = re.compile(r"```dev-task-meta\s*\n(\{.*?\})\s*\n```", re.DOTALL)
 _TITLE_MAX_CHARS = 80
-_DEFAULT_WORKER_TIMEOUT_SECONDS = 1800
+_DEFAULT_WORKER_TIMEOUT_SECONDS = 3600
 _OUTPUT_TAIL_CHARS = 4000
 _GH_TIMEOUT_SECONDS = 60
 _ISSUE_BODY_MAX_CHARS = 2000
