@@ -919,6 +919,8 @@ RX 9070 XT / Windows のローカルテスト:
 - Codex の結果をどこまで自動で overlay に出すか。差分の自動表示は便利だが、秘密情報の
   accidental leak に注意が必要である。
 - Claude Code も同じ delegate interface に抽象化するか、当面は Codex 専用にするか。
+  - 解決済み: delegate interface を汎用化し、`delegate_to: claude` で Claude Code
+    (`claude -p --permission-mode acceptEdits`) を使えるようにした。
 
 ## 推奨される次の作業
 

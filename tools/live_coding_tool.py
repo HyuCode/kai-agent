@@ -21,9 +21,9 @@ def _load_config() -> dict[str, Any]:
 
 def check_live_coding_requirements() -> bool:
     try:
-        from hermes_cli.live_coding import check_codex_available
+        from hermes_cli.live_coding import check_delegate_available
 
-        return check_codex_available(_load_config())
+        return check_delegate_available(_load_config())
     except Exception:
         return False
 
@@ -36,9 +36,9 @@ def live_coding_delegate_tool(
 ) -> str:
     del task_id
     try:
-        from hermes_cli.live_coding import run_codex_delegate
+        from hermes_cli.live_coding import run_delegate
 
-        result = run_codex_delegate(task, config=_load_config(), workdir=workdir or os.getcwd())
+        result = run_delegate(task, config=_load_config(), workdir=workdir or os.getcwd())
         return json.dumps(result, ensure_ascii=False)
     except Exception as exc:
         return json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False)
@@ -51,20 +51,20 @@ registry.register(
         "name": "live_coding_delegate",
         "description": (
             "Delegate a focused live-coding implementation, investigation, or test task "
-            "to Codex CLI and publish progress to the live overlay. Use only during "
-            "live-coding mode, and never for commit, push, destructive deletion, or "
-            "secret inspection."
+            "to the configured coding CLI (Codex or Claude Code) and publish progress "
+            "to the live overlay. Use only during live-coding mode, and never for "
+            "commit, push, destructive deletion, or secret inspection."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "task": {
                     "type": "string",
-                    "description": "Focused coding task to delegate to Codex.",
+                    "description": "Focused coding task to delegate to the coding CLI.",
                 },
                 "workdir": {
                     "type": "string",
-                    "description": "Project directory to run Codex in. Defaults to the current working directory.",
+                    "description": "Project directory to run the coding CLI in. Defaults to the current working directory.",
                 },
             },
             "required": ["task"],

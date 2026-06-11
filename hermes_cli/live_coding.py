@@ -31,10 +31,33 @@ _KNOWN_TOKEN_RE = re.compile(
 _ABS_PATH_RE = re.compile(r"(?<![\w./-])(/(?:Users|Volumes|home|var|tmp)/[^\s'\"`]+)")
 
 
+SUPPORTED_DELEGATES = ("codex", "claude")
+
+_DELEGATE_ALIASES = {
+    "codex": "codex",
+    "claude": "claude",
+    "claude_code": "claude",
+    "claude-code": "claude",
+    "claudecode": "claude",
+}
+
+_DELEGATE_LABELS = {
+    "codex": "Codex",
+    "claude": "Claude Code",
+}
+
+
+def normalize_delegate(value: str) -> str:
+    cleaned = str(value or "").strip().lower()
+    return _DELEGATE_ALIASES.get(cleaned, cleaned)
+
+
 @dataclass(frozen=True)
 class LiveCodingConfig:
     delegate_to: str = "codex"
     codex_path: str = "codex"
+    claude_path: str = "claude"
+    claude_permission_mode: str = "acceptEdits"
     timeout_seconds: int = 900
     max_output_chars: int = 6000
     allow_file_edits: bool = True
@@ -76,9 +99,14 @@ def load_live_coding_config(config: dict[str, Any] | None) -> LiveCodingConfig:
             return default
         return parsed if parsed >= minimum else default
 
+    permission_mode = coding.get("claude_permission_mode", "acceptEdits")
+    permission_mode = str(permission_mode).strip() if permission_mode is not None else ""
+
     return LiveCodingConfig(
-        delegate_to=_str("delegate_to", "codex").lower(),
+        delegate_to=normalize_delegate(_str("delegate_to", "codex")),
         codex_path=_str("codex_path", "codex"),
+        claude_path=_str("claude_path", "claude"),
+        claude_permission_mode=permission_mode,
         timeout_seconds=_int("timeout_seconds", 900, minimum=10),
         max_output_chars=_int("max_output_chars", 6000, minimum=500),
         allow_file_edits=_bool("allow_file_edits", True),
@@ -92,11 +120,19 @@ def load_live_coding_config(config: dict[str, Any] | None) -> LiveCodingConfig:
     )
 
 
-def check_codex_available(config: dict[str, Any] | None = None) -> bool:
+def delegate_label(cfg: LiveCodingConfig) -> str:
+    return _DELEGATE_LABELS.get(cfg.delegate_to, cfg.delegate_to or "delegate")
+
+
+def delegate_path(cfg: LiveCodingConfig) -> str:
+    return cfg.claude_path if cfg.delegate_to == "claude" else cfg.codex_path
+
+
+def check_delegate_available(config: dict[str, Any] | None = None) -> bool:
     cfg = load_live_coding_config(config)
-    if cfg.delegate_to != "codex":
+    if cfg.delegate_to not in SUPPORTED_DELEGATES:
         return False
-    return shutil.which(cfg.codex_path) is not None
+    return shutil.which(delegate_path(cfg)) is not None
 
 
 def sanitize_for_stream(text: str, *, max_chars: int = 6000) -> str:
@@ -130,7 +166,7 @@ def _shorten_path_match(match: re.Match[str]) -> str:
         return "<path>"
 
 
-def _compose_codex_prompt(task: str, cfg: LiveCodingConfig) -> str:
+def _compose_delegate_prompt(task: str, cfg: LiveCodingConfig) -> str:
     rules = [
         "You are working during a live-coding stream.",
         "Keep changes scoped to the requested task.",
@@ -146,38 +182,49 @@ def _compose_codex_prompt(task: str, cfg: LiveCodingConfig) -> str:
     return "\n".join(["\n".join(f"- {rule}" for rule in rules), "", "Task:", task.strip()])
 
 
-def build_codex_command(task: str, cfg: LiveCodingConfig) -> list[str]:
-    if cfg.delegate_to != "codex":
-        raise ValueError(f"unsupported live coding delegate: {cfg.delegate_to}")
-    return [cfg.codex_path, "exec", _compose_codex_prompt(task, cfg)]
+def build_delegate_command(task: str, cfg: LiveCodingConfig) -> list[str]:
+    prompt = _compose_delegate_prompt(task, cfg)
+    if cfg.delegate_to == "codex":
+        return [cfg.codex_path, "exec", prompt]
+    if cfg.delegate_to == "claude":
+        # Claude Code headless mode: -p runs one-shot and exits. Permission
+        # prompts cannot be answered headlessly, so file edits need an
+        # auto-approving permission mode; read-only runs work with the default.
+        command = [cfg.claude_path, "-p"]
+        if cfg.allow_file_edits and cfg.claude_permission_mode:
+            command += ["--permission-mode", cfg.claude_permission_mode]
+        command.append(prompt)
+        return command
+    raise ValueError(f"unsupported live coding delegate: {cfg.delegate_to}")
 
 
-def run_codex_delegate(
+def run_delegate(
     task: str,
     *,
     config: dict[str, Any] | None = None,
     workdir: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
     cfg = load_live_coding_config(config)
+    label = delegate_label(cfg)
     cleaned_task = sanitize_for_stream(task, max_chars=500)
     if not cleaned_task:
         return {"success": False, "error": "task is required"}
-    if cfg.delegate_to != "codex":
+    if cfg.delegate_to not in SUPPORTED_DELEGATES:
         return {"success": False, "error": f"unsupported delegate: {cfg.delegate_to}"}
-    if shutil.which(cfg.codex_path) is None:
-        return {"success": False, "error": f"Codex CLI not found: {cfg.codex_path}"}
+    if shutil.which(delegate_path(cfg)) is None:
+        return {"success": False, "error": f"{label} CLI not found: {delegate_path(cfg)}"}
 
     cwd = Path(workdir or os.getcwd()).expanduser().resolve()
     if not cwd.exists() or not cwd.is_dir():
         return {"success": False, "error": f"workdir does not exist: {sanitize_for_stream(str(cwd), max_chars=500)}"}
 
-    command = build_codex_command(task, cfg)
+    command = build_delegate_command(task, cfg)
     _publish_status(
         config,
         status="running",
         codex_status="running",
         current_task=cleaned_task,
-        next_step="Codex が作業中です",
+        next_step=f"{label} が作業中です",
     )
     started = time.monotonic()
     try:
@@ -200,15 +247,16 @@ def run_codex_delegate(
             status="failed",
             codex_status="failed",
             current_task=cleaned_task,
-            error_summary="Codex 実行が timeout しました",
+            error_summary=f"{label} 実行が timeout しました",
             next_step="作業を小さく分けて再実行してください",
         )
         return {
             "success": False,
             "status": "timeout",
+            "delegate": cfg.delegate_to,
             "duration_ms": duration_ms,
             "output": partial,
-            "error": "Codex execution timed out",
+            "error": f"{label} execution timed out",
         }
 
     duration_ms = int((time.monotonic() - started) * 1000)
@@ -223,12 +271,12 @@ def run_codex_delegate(
         codex_status="done" if success else "failed",
         current_task=cleaned_task,
         error_summary="" if success else _first_nonempty_line(output),
-        next_step="結果を確認してください" if success else "Codex の出力を確認してください",
+        next_step="結果を確認してください" if success else f"{label} の出力を確認してください",
     )
     return {
         "success": success,
         "status": "done" if success else "failed",
-        "delegate": "codex",
+        "delegate": cfg.delegate_to,
         "returncode": result.returncode,
         "duration_ms": duration_ms,
         "workdir": sanitize_for_stream(str(cwd), max_chars=500),
@@ -241,7 +289,7 @@ def _first_nonempty_line(text: str) -> str:
         cleaned = line.strip()
         if cleaned:
             return cleaned[:180]
-    return "Codex execution failed"
+    return "delegate execution failed"
 
 
 def _publish_status(config: dict[str, Any] | None, **fields: Any) -> None:

@@ -18,6 +18,19 @@ Opener = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
 _GITHUB_RE = re.compile(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?$")
 
+KNOWN_WORKERS = ("codex", "claude", "hermes")
+
+_WORKER_ALIASES = {
+    "claude_code": "claude",
+    "claude-code": "claude",
+    "claudecode": "claude",
+}
+
+
+def normalize_worker(value: str) -> str:
+    cleaned = str(value or "").strip().lower()
+    return _WORKER_ALIASES.get(cleaned, cleaned)
+
 
 @dataclass(frozen=True)
 class RepositoryInfo:
@@ -148,7 +161,7 @@ def load_repositories(config: dict[str, Any] | None) -> list[RepositoryInfo]:
                 github=github,
                 default_branch=default_branch,
                 worktree_root=worktree_root,
-                worker=str(raw.get("worker") or default_worker or "").strip(),
+                worker=normalize_worker(raw.get("worker") or default_worker or ""),
                 exists=exists,
                 is_git_repo=is_git_repo,
             )
@@ -217,14 +230,17 @@ def add_repository(
     clean_id = str(repo_id or "").strip()
     if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]*$", clean_id):
         return {"success": False, "error": "repo_id must contain only letters, numbers, underscore, or dash"}
+    clean_worker = normalize_worker(worker)
+    if clean_worker and clean_worker not in KNOWN_WORKERS:
+        return {"success": False, "error": f"unknown worker: {worker} (expected one of: {', '.join(KNOWN_WORKERS)})"}
     path = _expand_path(local_path)
     value: dict[str, Any] = {"local_path": str(path)}
     if github:
         value["github"] = github
     if default_branch:
         value["default_branch"] = default_branch
-    if worker:
-        value["worker"] = worker
+    if clean_worker:
+        value["worker"] = clean_worker
     writer = saver or save_config_value
     ok = writer(f"repositories.{clean_id}", value)
     return {"success": ok, "repo_id": clean_id, "repository": value, "error": "" if ok else "failed to save config"}
@@ -343,7 +359,13 @@ def handle_dev_command(
             if result.get("success"):
                 return {"success": True, "output": f"Repository added: {result['repo_id']}"}
             return {"success": False, "error": result.get("error") or "failed to add repository"}
-        return {"success": False, "error": "usage: /dev repo [list|show <repo_id>|add <repo_id> <local_path> [--github owner/repo]]"}
+        return {
+            "success": False,
+            "error": (
+                "usage: /dev repo [list|show <repo_id>|add <repo_id> <local_path> "
+                "[--github owner/repo] [--worker codex|claude|hermes]]"
+            ),
+        }
     if sub == "open":
         if len(parts) < 2:
             return {"success": False, "error": "usage: /dev open <repo_id>"}

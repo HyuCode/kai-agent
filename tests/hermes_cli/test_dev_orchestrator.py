@@ -68,6 +68,46 @@ def test_add_repository_rejects_dot_in_repo_id(tmp_path):
     assert result["success"] is False
 
 
+def test_add_repository_normalizes_claude_code_worker(tmp_path):
+    calls = []
+
+    result = add_repository(
+        "kai",
+        str(tmp_path / "kai"),
+        worker="Claude_Code",
+        saver=lambda key, value: calls.append((key, value)) or True,
+    )
+
+    assert result["success"] is True
+    assert calls[0][1]["worker"] == "claude"
+
+
+def test_add_repository_rejects_unknown_worker(tmp_path):
+    result = add_repository(
+        "kai",
+        str(tmp_path / "kai"),
+        worker="copilot",
+        saver=lambda _key, _value: True,
+    )
+
+    assert result["success"] is False
+    assert "unknown worker" in result["error"]
+
+
+def test_load_repositories_normalizes_worker_aliases(tmp_path):
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+    (repo_path / ".git").mkdir()
+    config = {
+        "dev_orchestrator": {"default_worker": "claude-code"},
+        "repositories": {"repo": {"local_path": str(repo_path)}},
+    }
+
+    repos = load_repositories(config)
+
+    assert repos[0].worker == "claude"
+
+
 def test_open_repository_uses_configured_code_command(tmp_path):
     repo_path = tmp_path / "repo"
     repo_path.mkdir()

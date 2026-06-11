@@ -1823,8 +1823,12 @@ DEFAULT_CONFIG = {
     "stream_assistant": {
         "mode": "game",  # game | live_coding
         "coding": {
-            "delegate_to": "codex",
+            "delegate_to": "codex",  # codex | claude (Claude Code)
             "codex_path": "codex",
+            "claude_path": "claude",
+            # Permission mode passed to `claude -p` when file edits are allowed:
+            # acceptEdits | bypassPermissions | "" (Claude Code default mode)
+            "claude_permission_mode": "acceptEdits",
             "timeout_seconds": 900,
             "max_output_chars": 6000,
             "allow_file_edits": True,
@@ -1840,7 +1844,7 @@ DEFAULT_CONFIG = {
 
     "dev_orchestrator": {
         "enabled": True,
-        "default_worker": "codex",
+        "default_worker": "codex",  # codex | claude | hermes
         "worktree_root": "~/.hermes/dev-worktrees",
         "require_approval_for_issue_create": True,
         "require_approval_for_pr_create": True,
