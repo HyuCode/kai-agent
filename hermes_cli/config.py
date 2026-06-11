@@ -1846,6 +1846,7 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "default_worker": "codex",  # codex | claude | hermes
         "worktree_root": "~/.hermes/dev-worktrees",
+        "worker_timeout_seconds": 1800,
         "require_approval_for_issue_create": True,
         "require_approval_for_pr_create": True,
         "require_approval_for_push": True,

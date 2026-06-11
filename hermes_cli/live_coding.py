@@ -192,11 +192,12 @@ def _compose_delegate_prompt(task: str, cfg: LiveCodingConfig) -> str:
     )
 
 
-def build_delegate_command(task: str, cfg: LiveCodingConfig) -> list[str]:
-    prompt = _compose_delegate_prompt(task, cfg)
-    if cfg.delegate_to == "codex":
+def delegate_argv(cfg: LiveCodingConfig, prompt: str, *, delegate: str = "") -> list[str]:
+    """Build the one-shot CLI argv for a delegate given a final prompt."""
+    target = normalize_delegate(delegate) or cfg.delegate_to
+    if target == "codex":
         return [cfg.codex_path, "exec", "--", prompt]
-    if cfg.delegate_to == "claude":
+    if target == "claude":
         # Claude Code headless mode: -p runs one-shot and exits. Permission
         # prompts cannot be answered headlessly, so file edits need an
         # auto-approving permission mode; read-only runs work with the default.
@@ -205,7 +206,11 @@ def build_delegate_command(task: str, cfg: LiveCodingConfig) -> list[str]:
             command += ["--permission-mode", cfg.claude_permission_mode]
         command += ["--", prompt]
         return command
-    raise ValueError(f"unsupported live coding delegate: {cfg.delegate_to}")
+    raise ValueError(f"unsupported live coding delegate: {target}")
+
+
+def build_delegate_command(task: str, cfg: LiveCodingConfig) -> list[str]:
+    return delegate_argv(cfg, _compose_delegate_prompt(task, cfg))
 
 
 def run_delegate(

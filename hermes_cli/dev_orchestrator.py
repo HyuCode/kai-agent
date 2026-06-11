@@ -9,6 +9,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -36,6 +37,8 @@ def normalize_worker(value: str) -> str:
 DEV_TENANT = "dev"
 _DEV_META_RE = re.compile(r"```dev-task-meta\s*\n(\{.*?\})\s*\n```", re.DOTALL)
 _TITLE_MAX_CHARS = 80
+_DEFAULT_WORKER_TIMEOUT_SECONDS = 1800
+_OUTPUT_TAIL_CHARS = 4000
 
 
 @dataclass(frozen=True)
@@ -403,6 +406,308 @@ def summarize_dev_tasks(items: list[dict[str, Any]]) -> str:
     return f"{len(items)} total ({', '.join(parts)})"
 
 
+def _run_git(args: list[str], *, timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        text=True,
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def create_task_worktree(repo: RepositoryInfo, task_id: str) -> dict[str, Any]:
+    """Create (or reuse) a dedicated git worktree for a dev task."""
+    if not repo.worktree_root:
+        return {"success": False, "error": f"no worktree_root configured for repository: {repo.repo_id}"}
+    if not repo.exists or not repo.is_git_repo:
+        return {"success": False, "error": f"repository is not a usable git checkout: {repo.local_path}"}
+    branch = f"dev/{task_id}"
+    path = _expand_path(repo.worktree_root) / task_id
+    if path.is_dir():
+        return {"success": True, "worktree_path": str(path), "branch": branch, "reused": True}
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    add = ["-C", repo.local_path, "worktree", "add", "-b", branch, str(path)]
+    if repo.default_branch:
+        add.append(repo.default_branch)
+    try:
+        proc = _run_git(add)
+        if proc.returncode != 0 and "already exists" in (proc.stderr or ""):
+            # Branch left over from an earlier attempt — attach to it.
+            proc = _run_git(["-C", repo.local_path, "worktree", "add", str(path), branch])
+    except Exception as exc:
+        return {"success": False, "error": f"failed to create worktree: {exc}"}
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        return {"success": False, "error": f"failed to create worktree: {detail}"}
+    return {"success": True, "worktree_path": str(path), "branch": branch, "reused": False}
+
+
+def _worktree_change_summary(worktree_path: str, default_branch: str) -> str:
+    parts: list[str] = []
+    try:
+        status = _run_git(["-C", worktree_path, "status", "--porcelain"])
+        changed = [line for line in (status.stdout or "").splitlines() if line.strip()]
+        parts.append(f"{len(changed)} uncommitted file(s)")
+        if default_branch:
+            commits = _run_git(["-C", worktree_path, "rev-list", "--count", f"{default_branch}..HEAD"])
+            if commits.returncode == 0:
+                parts.append(f"{(commits.stdout or '0').strip()} new commit(s)")
+        diff = _run_git(["-C", worktree_path, "diff", "--stat", "HEAD"])
+        stat_tail = (diff.stdout or "").strip().splitlines()
+        if stat_tail:
+            parts.append(stat_tail[-1].strip())
+    except Exception:
+        pass
+    return ", ".join(parts) if parts else "no change information"
+
+
+def _compose_worker_prompt(task_text: str, repo: RepositoryInfo, config: dict[str, Any] | None) -> str:
+    dev = _dev_config(config)
+    rules = [
+        "You are a development worker for the Hermes dev orchestrator.",
+        "Work only inside the current working directory; it is a dedicated git worktree for this task.",
+        "Keep changes scoped to the requested task.",
+        "Do not reveal secrets, API keys, tokens, .env contents, private keys, or credentials.",
+        "Do not run git push.",
+        "Do not create GitHub issues or pull requests.",
+        "Run the project's focused tests when practical and summarize the result.",
+    ]
+    if dev.get("require_approval_for_commit", False):
+        rules.append("Do not run git commit; leave changes uncommitted for review.")
+    else:
+        rules.append("You may create focused local git commits on the current branch.")
+    return "\n".join(
+        [
+            "Follow these rules for this delegated task:",
+            "\n".join(f"- {rule}" for rule in rules),
+            "",
+            f"Repository: {repo.repo_id}" + (f" ({repo.github})" if repo.github else ""),
+            "",
+            "Task:",
+            task_text.strip(),
+        ]
+    )
+
+
+def _worker_argv(config: dict[str, Any] | None, worker: str, prompt: str) -> list[str]:
+    from hermes_cli.live_coding import delegate_argv, load_live_coding_config
+
+    return delegate_argv(load_live_coding_config(config), prompt, delegate=worker)
+
+
+def _worker_timeout_seconds(config: dict[str, Any] | None) -> int:
+    value = _dev_config(config).get("worker_timeout_seconds", _DEFAULT_WORKER_TIMEOUT_SECONDS)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return _DEFAULT_WORKER_TIMEOUT_SECONDS
+    return parsed if parsed >= 10 else _DEFAULT_WORKER_TIMEOUT_SECONDS
+
+
+def _task_text_without_meta(body: str | None) -> str:
+    return _DEV_META_RE.sub("", str(body or "")).strip()
+
+
+def _update_task_meta(task_id: str, meta: dict[str, Any]) -> None:
+    """Rewrite the dev-task-meta block in the task body."""
+    from hermes_cli import kanban_db as kb
+
+    with kb.connect_closing() as conn:
+        task = kb.get_task(conn, task_id)
+        if task is None:
+            return
+        body = _compose_dev_task_body(_task_text_without_meta(task.body), meta)
+        with kb.write_txn(conn):
+            conn.execute("UPDATE tasks SET body = ? WHERE id = ?", (body, task_id))
+
+
+def _write_worker_log(task_id: str, text: str) -> str:
+    try:
+        from hermes_cli import kanban_db as kb
+
+        path = kb.worker_log_path(task_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return str(path)
+    except Exception:
+        return ""
+
+
+def run_dev_task(
+    config: dict[str, Any] | None,
+    task_id: str,
+    *,
+    runner: Opener | None = None,
+) -> dict[str, Any]:
+    """Run one dev task to completion in a dedicated worktree (Phase 4)."""
+    from hermes_cli import kanban_db as kb
+    from hermes_cli.live_coding import sanitize_for_stream
+
+    clean_id = str(task_id or "").strip()
+    if not clean_id:
+        return {"success": False, "error": "usage: /dev run <task_id>"}
+    with kb.connect_closing() as conn:
+        task = kb.get_task(conn, clean_id)
+    if task is None:
+        return {"success": False, "error": f"task not found: {clean_id}"}
+    meta = parse_dev_task_metadata(task.body)
+    if meta.get("kind") != "dev_task":
+        return {"success": False, "error": f"not a dev task: {clean_id}"}
+    if task.status != "ready":
+        return {"success": False, "error": f"task is not ready (status: {task.status})"}
+
+    repo = get_repository(config, str(meta.get("repo_id") or ""))
+    if repo is None:
+        return {"success": False, "error": f"repository not found: {meta.get('repo_id')}"}
+    worker = normalize_worker(str(meta.get("worker") or "")) or repo.worker
+    if worker == "hermes":
+        return {"success": False, "error": "hermes worker lane is not implemented yet; use codex or claude"}
+    if worker not in KNOWN_WORKERS:
+        return {"success": False, "error": f"unknown worker: {worker}"}
+
+    worktree = create_task_worktree(repo, clean_id)
+    if not worktree.get("success"):
+        return {"success": False, "error": worktree.get("error")}
+    worktree_path = str(worktree["worktree_path"])
+    branch = str(worktree["branch"])
+
+    prompt = _compose_worker_prompt(_task_text_without_meta(task.body), repo, config)
+    try:
+        command = _worker_argv(config, worker, prompt)
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    if shutil.which(command[0]) is None:
+        return {"success": False, "error": f"worker CLI not found: {command[0]}"}
+
+    with kb.connect_closing() as conn:
+        claimed = kb.claim_task(conn, clean_id, claimer="dev-orchestrator")
+    if claimed is None:
+        return {"success": False, "error": f"could not claim task (already claimed?): {clean_id}"}
+
+    meta.update({"worktree_path": worktree_path, "branch": branch, "worker": worker})
+    try:
+        _update_task_meta(clean_id, meta)
+    except Exception:
+        pass
+
+    run = runner or _default_worker_run
+    timeout = _worker_timeout_seconds(config)
+    started = time.monotonic()
+    try:
+        proc = _invoke_worker(run, command, worktree_path, timeout)
+    except subprocess.TimeoutExpired:
+        duration_ms = int((time.monotonic() - started) * 1000)
+        reason = f"worker timed out after {timeout}s (worker={worker}, branch={branch})"
+        with kb.connect_closing() as conn:
+            kb.block_task(conn, clean_id, reason=reason)
+        return {"success": False, "status": "blocked", "error": reason, "duration_ms": duration_ms}
+    except Exception as exc:
+        reason = f"worker failed to start: {exc}"
+        with kb.connect_closing() as conn:
+            kb.block_task(conn, clean_id, reason=reason)
+        return {"success": False, "status": "blocked", "error": reason}
+
+    duration_ms = int((time.monotonic() - started) * 1000)
+    output = sanitize_for_stream(
+        "\n".join(part for part in [proc.stdout, proc.stderr] if part),
+        max_chars=_OUTPUT_TAIL_CHARS,
+    )
+    log_path = _write_worker_log(clean_id, output)
+    changes = _worktree_change_summary(worktree_path, repo.default_branch)
+    run_meta = {
+        "kind": "dev_task",
+        "worker": worker,
+        "branch": branch,
+        "worktree_path": worktree_path,
+        "returncode": proc.returncode,
+        "duration_ms": duration_ms,
+        "change_summary": changes,
+        "log_path": log_path,
+    }
+
+    if proc.returncode == 0:
+        summary = f"worker={worker} done: {changes}"
+        with kb.connect_closing() as conn:
+            kb.complete_task(conn, clean_id, result=output[-1000:], summary=summary, metadata=run_meta)
+        return {
+            "success": True,
+            "status": "done",
+            "task_id": clean_id,
+            "worker": worker,
+            "branch": branch,
+            "worktree_path": worktree_path,
+            "change_summary": changes,
+            "duration_ms": duration_ms,
+            "log_path": log_path,
+            "output": output,
+        }
+
+    reason = f"worker={worker} failed with exit code {proc.returncode}"
+    with kb.connect_closing() as conn:
+        kb.block_task(conn, clean_id, reason=reason)
+    return {
+        "success": False,
+        "status": "blocked",
+        "task_id": clean_id,
+        "worker": worker,
+        "branch": branch,
+        "worktree_path": worktree_path,
+        "change_summary": changes,
+        "duration_ms": duration_ms,
+        "log_path": log_path,
+        "error": reason,
+        "output": output,
+    }
+
+
+def _invoke_worker(
+    run: Opener,
+    command: list[str],
+    worktree_path: str,
+    timeout: int,
+) -> subprocess.CompletedProcess[str]:
+    if run is _default_worker_run:
+        return _default_worker_run(command, cwd=worktree_path, timeout=timeout)
+    return run(command)
+
+
+def _default_worker_run(
+    command: list[str],
+    *,
+    cwd: str = "",
+    timeout: int = _DEFAULT_WORKER_TIMEOUT_SECONDS,
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        command,
+        cwd=cwd or None,
+        text=True,
+        capture_output=True,
+        stdin=subprocess.DEVNULL,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def format_run_result(result: dict[str, Any]) -> str:
+    if not result.get("success") and not result.get("status"):
+        return f"Dev task run failed: {result.get('error') or 'unknown error'}"
+    lines = [
+        f"Dev task {result.get('task_id')}: {result.get('status')}",
+        f"  Worker:   {result.get('worker')}",
+        f"  Branch:   {result.get('branch')}",
+        f"  Worktree: {result.get('worktree_path')}",
+        f"  Changes:  {result.get('change_summary')}",
+    ]
+    if result.get("log_path"):
+        lines.append(f"  Log:      {result.get('log_path')}")
+    if result.get("error"):
+        lines.append(f"  Error:    {result.get('error')}")
+    return "\n".join(lines)
+
+
 def _vscode_command(config: dict[str, Any] | None, path: str) -> list[str]:
     dev = _dev_config(config)
     vscode = dev.get("vscode")
@@ -521,6 +826,15 @@ def handle_dev_command(
             return {"success": False, "error": f"repository not found: {repo_filter}"}
         items = list_dev_tasks(config, repo_id=repo_filter)
         return {"success": True, "output": format_dev_tasks(items, repo_filter)}
+    if sub == "run":
+        if len(parts) < 2:
+            return {"success": False, "error": "usage: /dev run <task_id>"}
+        result = run_dev_task(config, parts[1])
+        return {
+            "success": bool(result.get("success")),
+            "output": format_run_result(result),
+            "error": result.get("error"),
+        }
     if sub in {"repos", "repositories"}:
         return {"success": True, "output": format_repositories(load_repositories(config))}
     if sub == "repo":
@@ -565,4 +879,4 @@ def handle_dev_command(
             return {"success": False, "error": "usage: /dev open <repo_id>"}
         result = open_repository(config, parts[1], opener=opener)
         return {"success": bool(result.get("success")), "output": format_open_result(result), "error": result.get("error")}
-    return {"success": False, "error": "usage: /dev [status|repos|repo show|repo add|assign|tasks|open]"}
+    return {"success": False, "error": "usage: /dev [status|repos|repo show|repo add|assign|tasks|run|open]"}

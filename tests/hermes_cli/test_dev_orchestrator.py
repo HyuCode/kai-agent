@@ -5,6 +5,7 @@ import pytest
 from hermes_cli.dev_orchestrator import (
     add_repository,
     assign_dev_task,
+    create_task_worktree,
     format_repositories,
     get_repository,
     handle_dev_command,
@@ -12,7 +13,27 @@ from hermes_cli.dev_orchestrator import (
     load_repositories,
     open_repository,
     parse_dev_task_metadata,
+    run_dev_task,
 )
+
+
+def _git(repo_path, *args):
+    subprocess.run(
+        ["git", "-C", str(repo_path), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _init_git_repo(repo_path):
+    repo_path.mkdir(parents=True, exist_ok=True)
+    _git(repo_path.parent, "init", "-q", "-b", "main", str(repo_path))
+    _git(repo_path, "config", "user.email", "test@example.com")
+    _git(repo_path, "config", "user.name", "Test")
+    (repo_path / "README.md").write_text("hello\n")
+    _git(repo_path, "add", "README.md")
+    _git(repo_path, "commit", "-q", "-m", "init")
 
 
 @pytest.fixture
@@ -259,3 +280,120 @@ def test_parse_dev_task_metadata_is_shape_safe():
     assert parse_dev_task_metadata(None) == {}
     assert parse_dev_task_metadata("no fence here") == {}
     assert parse_dev_task_metadata("```dev-task-meta\nnot json\n```") == {}
+
+
+@pytest.fixture
+def worker_env(tmp_path, monkeypatch):
+    """Isolated HERMES_HOME plus a real git repo registered as 'proj'."""
+    home = tmp_path / "hermes-home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("HERMES_KANBAN_HOME", str(home))
+    repo_path = tmp_path / "proj"
+    _init_git_repo(repo_path)
+    config = {
+        "dev_orchestrator": {
+            "default_worker": "claude",
+            "worktree_root": str(tmp_path / "worktrees"),
+        },
+        "repositories": {"proj": {"local_path": str(repo_path)}},
+    }
+    return config
+
+
+def test_create_task_worktree_creates_branch_and_dir(worker_env):
+    repo = get_repository(worker_env, "proj")
+
+    result = create_task_worktree(repo, "t_abc123")
+
+    assert result["success"] is True
+    assert result["branch"] == "dev/t_abc123"
+    worktree = subprocess.run(
+        ["git", "-C", result["worktree_path"], "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert worktree.stdout.strip() == "dev/t_abc123"
+
+    again = create_task_worktree(repo, "t_abc123")
+    assert again["success"] is True
+    assert again["reused"] is True
+
+
+def test_run_dev_task_completes_task_with_change_summary(worker_env):
+    created = assign_dev_task(worker_env, "proj", "Add a feature file")
+    task_id = created["task_id"]
+
+    def fake_worker(command):
+        assert command[0] == "claude"
+        return subprocess.CompletedProcess(command, 0, stdout="did the work\n", stderr="")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/claude")
+        result = run_dev_task(worker_env, task_id, runner=fake_worker)
+
+    assert result["success"] is True
+    assert result["status"] == "done"
+    assert result["branch"] == f"dev/{task_id}"
+
+    from hermes_cli import kanban_db as kb
+
+    with kb.connect_closing() as conn:
+        task = kb.get_task(conn, task_id)
+    assert task.status == "done"
+    meta = parse_dev_task_metadata(task.body)
+    assert meta["branch"] == f"dev/{task_id}"
+    assert meta["worktree_path"] == result["worktree_path"]
+
+
+def test_run_dev_task_blocks_on_worker_failure(worker_env):
+    created = assign_dev_task(worker_env, "proj", "Break something")
+    task_id = created["task_id"]
+
+    def fake_worker(command):
+        return subprocess.CompletedProcess(command, 2, stdout="", stderr="boom API_KEY=secret123456")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/claude")
+        result = run_dev_task(worker_env, task_id, runner=fake_worker)
+
+    assert result["success"] is False
+    assert result["status"] == "blocked"
+    assert "secret123456" not in result["output"]
+
+    from hermes_cli import kanban_db as kb
+
+    with kb.connect_closing() as conn:
+        task = kb.get_task(conn, task_id)
+    assert task.status == "blocked"
+
+
+def test_run_dev_task_validates_task_and_status(worker_env):
+    missing = run_dev_task(worker_env, "t_nope")
+    assert missing["success"] is False
+    assert "task not found" in missing["error"]
+
+    created = assign_dev_task(worker_env, "proj", "Run twice")
+    task_id = created["task_id"]
+
+    def fake_worker(command):
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/claude")
+        first = run_dev_task(worker_env, task_id, runner=fake_worker)
+        second = run_dev_task(worker_env, task_id, runner=fake_worker)
+
+    assert first["success"] is True
+    assert second["success"] is False
+    assert "not ready" in second["error"]
+
+
+def test_run_dev_task_rejects_hermes_worker(worker_env):
+    created = assign_dev_task(worker_env, "proj", "Use hermes lane", worker="hermes")
+
+    result = run_dev_task(worker_env, created["task_id"])
+
+    assert result["success"] is False
+    assert "not implemented" in result["error"]
