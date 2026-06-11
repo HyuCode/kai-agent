@@ -156,11 +156,14 @@ COMMAND_REGISTRY: list[CommandDef] = [
                subcommands=("kaomoji", "emoji", "unicode", "ascii")),
     CommandDef("voice", "Toggle voice mode", "Configuration",
                args_hint="[on|off|tts|status]", subcommands=("on", "off", "tts", "status")),
+    # stream/dev are workstation-bound (OBS, local repos, VS Code); the TUI
+    # reaches them via direct command.dispatch, so cli_only here only keeps
+    # them out of the capped Slack/Telegram menus.
     CommandDef("stream", "Configure livestream assistant mode", "Configuration",
-               args_hint="[game|status]", subcommands=("game", "status")),
+               cli_only=True, args_hint="[game|status]", subcommands=("game", "status")),
     CommandDef("dev", "Manage development repositories and tasks", "Tools & Skills",
-               args_hint="[status|repos|repo|open]",
-               subcommands=("status", "repos", "repo", "open")),
+               cli_only=True, args_hint="[status|repos|repo|assign|tasks|open]",
+               subcommands=("status", "repos", "repo", "assign", "tasks", "open")),
     CommandDef("busy", "Control what Enter does while Hermes is working", "Configuration",
                cli_only=True, args_hint="[queue|steer|interrupt|status]",
                subcommands=("queue", "steer", "interrupt", "status")),

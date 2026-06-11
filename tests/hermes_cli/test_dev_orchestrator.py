@@ -1,13 +1,35 @@
 import subprocess
 
+import pytest
+
 from hermes_cli.dev_orchestrator import (
     add_repository,
+    assign_dev_task,
     format_repositories,
     get_repository,
     handle_dev_command,
+    list_dev_tasks,
     load_repositories,
     open_repository,
+    parse_dev_task_metadata,
 )
+
+
+@pytest.fixture
+def dev_env(tmp_path, monkeypatch):
+    """Isolated HERMES_HOME plus one registered git repo."""
+    home = tmp_path / "hermes-home"
+    home.mkdir()
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    monkeypatch.setenv("HERMES_KANBAN_HOME", str(home))
+    repo_path = tmp_path / "kai"
+    repo_path.mkdir()
+    (repo_path / ".git").mkdir()
+    config = {
+        "dev_orchestrator": {"default_worker": "codex"},
+        "repositories": {"kai": {"local_path": str(repo_path)}},
+    }
+    return config
 
 
 def test_load_repositories_reads_config_and_expands_paths(tmp_path):
@@ -164,3 +186,76 @@ def test_handle_dev_command_repo_add_accepts_quoted_path(tmp_path):
 
 def test_get_repository_returns_none_for_unknown():
     assert get_repository({"repositories": {}}, "missing") is None
+
+
+def test_assign_dev_task_creates_kanban_task_with_metadata(dev_env):
+    result = assign_dev_task(dev_env, "kai", "Fix the AquesTalk reading bug", worker="claude")
+
+    assert result["success"] is True
+    assert result["worker"] == "claude"
+
+    items = list_dev_tasks(dev_env)
+    assert len(items) == 1
+    assert items[0]["task_id"] == result["task_id"]
+    assert items[0]["repo_id"] == "kai"
+    assert items[0]["worker"] == "claude"
+    assert items[0]["status"] == "ready"
+
+    from hermes_cli import kanban_db as kb
+
+    with kb.connect_closing() as conn:
+        task = kb.get_task(conn, result["task_id"])
+    assert task.tenant == "dev"
+    assert task.assignee == "claude"
+    meta = parse_dev_task_metadata(task.body)
+    assert meta["kind"] == "dev_task"
+    assert meta["repo_id"] == "kai"
+    assert "Fix the AquesTalk reading bug" in task.body
+
+
+def test_assign_dev_task_rejects_unknown_repo_and_missing_text(dev_env):
+    missing_repo = assign_dev_task(dev_env, "nope", "Fix something")
+    empty_task = assign_dev_task(dev_env, "kai", "   ")
+
+    assert missing_repo["success"] is False
+    assert "repository not found" in missing_repo["error"]
+    assert empty_task["success"] is False
+    assert "task description is required" in empty_task["error"]
+
+
+def test_list_dev_tasks_filters_by_repo(dev_env, tmp_path):
+    other_path = tmp_path / "other"
+    other_path.mkdir()
+    (other_path / ".git").mkdir()
+    dev_env["repositories"]["other"] = {"local_path": str(other_path)}
+
+    assign_dev_task(dev_env, "kai", "Task for kai")
+    assign_dev_task(dev_env, "other", "Task for other")
+
+    assert len(list_dev_tasks(dev_env)) == 2
+    kai_items = list_dev_tasks(dev_env, repo_id="kai")
+    assert len(kai_items) == 1
+    assert kai_items[0]["repo_id"] == "kai"
+
+
+def test_handle_dev_command_assign_and_tasks(dev_env):
+    created = handle_dev_command(
+        "assign kai Fix the overlay flicker --worker claude_code",
+        config=dev_env,
+    )
+    listed = handle_dev_command("tasks kai", config=dev_env)
+    status = handle_dev_command("status", config=dev_env)
+    unknown = handle_dev_command("tasks nope", config=dev_env)
+
+    assert created["success"] is True
+    assert "Worker: claude" in created["output"]
+    assert listed["success"] is True
+    assert "Fix the overlay flicker" in listed["output"]
+    assert "1 total (1 ready)" in status["output"]
+    assert unknown["success"] is False
+
+
+def test_parse_dev_task_metadata_is_shape_safe():
+    assert parse_dev_task_metadata(None) == {}
+    assert parse_dev_task_metadata("no fence here") == {}
+    assert parse_dev_task_metadata("```dev-task-meta\nnot json\n```") == {}

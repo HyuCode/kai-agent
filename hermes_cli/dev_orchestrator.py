@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 import re
@@ -30,6 +31,11 @@ _WORKER_ALIASES = {
 def normalize_worker(value: str) -> str:
     cleaned = str(value or "").strip().lower()
     return _WORKER_ALIASES.get(cleaned, cleaned)
+
+
+DEV_TENANT = "dev"
+_DEV_META_RE = re.compile(r"```dev-task-meta\s*\n(\{.*?\})\s*\n```", re.DOTALL)
+_TITLE_MAX_CHARS = 80
 
 
 @dataclass(frozen=True)
@@ -246,6 +252,157 @@ def add_repository(
     return {"success": ok, "repo_id": clean_id, "repository": value, "error": "" if ok else "failed to save config"}
 
 
+def _compose_dev_task_body(task_text: str, meta: dict[str, Any]) -> str:
+    return "\n".join(
+        [
+            task_text.strip(),
+            "",
+            "```dev-task-meta",
+            json.dumps(meta, ensure_ascii=False, indent=2, sort_keys=True),
+            "```",
+        ]
+    )
+
+
+def parse_dev_task_metadata(body: str | None) -> dict[str, Any]:
+    match = _DEV_META_RE.search(str(body or ""))
+    if not match:
+        return {}
+    try:
+        data = json.loads(match.group(1))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def assign_dev_task(
+    config: dict[str, Any] | None,
+    repo_id: str,
+    task_text: str,
+    *,
+    worker: str = "",
+    requested_by: str = "cli",
+) -> dict[str, Any]:
+    cleaned = str(task_text or "").strip()
+    if not cleaned:
+        return {"success": False, "error": "task description is required"}
+    repo = get_repository(config, repo_id)
+    if repo is None:
+        return {"success": False, "error": f"repository not found: {repo_id}"}
+    if not repo.exists or not repo.is_git_repo:
+        return {"success": False, "error": f"repository is not a usable git checkout: {repo.local_path}"}
+    dev = _dev_config(config)
+    clean_worker = normalize_worker(worker or repo.worker or str(dev.get("default_worker") or ""))
+    if clean_worker not in KNOWN_WORKERS:
+        return {"success": False, "error": f"unknown worker: {clean_worker or '(empty)'} (expected one of: {', '.join(KNOWN_WORKERS)})"}
+
+    meta = {
+        "kind": "dev_task",
+        "repo_id": repo.repo_id,
+        "github": repo.github,
+        "local_path": repo.local_path,
+        "worktree_path": "",
+        "branch": "",
+        "issue": None,
+        "pr": None,
+        "worker": clean_worker,
+        "requested_by": requested_by,
+        "notify_voice": True,
+        "last_reported_event_id": None,
+    }
+    title = cleaned if len(cleaned) <= _TITLE_MAX_CHARS else cleaned[: _TITLE_MAX_CHARS - 3] + "..."
+    try:
+        from hermes_cli import kanban_db as kb
+
+        with kb.connect_closing() as conn:
+            # The worker name doubles as the assignee so the kanban
+            # dispatcher's default_assignee never adopts dev tasks; the dev
+            # orchestrator runs them itself (Phase 4).
+            task_id = kb.create_task(
+                conn,
+                title=title,
+                body=_compose_dev_task_body(cleaned, meta),
+                assignee=clean_worker,
+                created_by="dev-orchestrator",
+                tenant=DEV_TENANT,
+            )
+    except Exception as exc:
+        return {"success": False, "error": f"failed to create dev task: {exc}"}
+    return {
+        "success": True,
+        "task_id": task_id,
+        "repo_id": repo.repo_id,
+        "worker": clean_worker,
+        "title": title,
+    }
+
+
+def list_dev_tasks(
+    config: dict[str, Any] | None,
+    *,
+    repo_id: str = "",
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    del config
+    try:
+        from hermes_cli import kanban_db as kb
+
+        with kb.connect_closing() as conn:
+            tasks = kb.list_tasks(conn, tenant=DEV_TENANT, limit=limit)
+    except Exception:
+        return []
+    items: list[dict[str, Any]] = []
+    for task in tasks:
+        meta = parse_dev_task_metadata(task.body)
+        if meta.get("kind") != "dev_task":
+            continue
+        if repo_id and str(meta.get("repo_id") or "") != repo_id:
+            continue
+        items.append(
+            {
+                "task_id": task.id,
+                "title": task.title,
+                "status": task.status,
+                "repo_id": str(meta.get("repo_id") or ""),
+                "worker": str(meta.get("worker") or task.assignee or ""),
+                "branch": str(meta.get("branch") or ""),
+                "pr": meta.get("pr"),
+                "issue": meta.get("issue"),
+                "created_at": task.created_at,
+            }
+        )
+    return items
+
+
+def format_dev_tasks(items: list[dict[str, Any]], repo_id: str = "") -> str:
+    scope = f" ({repo_id})" if repo_id else ""
+    if not items:
+        return (
+            f"Dev tasks{scope}\n"
+            "  (none)\n\n"
+            "Create one with: /dev assign <repo_id> <task description>"
+        )
+    lines = [f"Dev tasks{scope}"]
+    for item in items:
+        details = [item["repo_id"], f"worker={item['worker']}"]
+        if item.get("branch"):
+            details.append(f"branch={item['branch']}")
+        if item.get("pr"):
+            details.append(f"pr={item['pr']}")
+        lines.append(f"  - {item['task_id']} [{item['status']}] {item['title']} ({', '.join(d for d in details if d)})")
+    return "\n".join(lines)
+
+
+def summarize_dev_tasks(items: list[dict[str, Any]]) -> str:
+    if not items:
+        return "no tasks"
+    counts: dict[str, int] = {}
+    for item in items:
+        counts[item["status"]] = counts.get(item["status"], 0) + 1
+    parts = [f"{count} {status}" for status, count in sorted(counts.items())]
+    return f"{len(items)} total ({', '.join(parts)})"
+
+
 def _vscode_command(config: dict[str, Any] | None, path: str) -> list[str]:
     dev = _dev_config(config)
     vscode = dev.get("vscode")
@@ -316,17 +473,54 @@ def handle_dev_command(
     if sub in {"status"}:
         repos = load_repositories(config)
         ok_count = sum(1 for repo in repos if repo.exists and repo.is_git_repo)
+        tasks = list_dev_tasks(config)
         return {
             "success": True,
             "output": "\n".join(
                 [
                     "Development Orchestrator Status",
                     f"  Repositories: {ok_count}/{len(repos)} ready",
+                    f"  Dev tasks:     {summarize_dev_tasks(tasks)}",
                     "  Task runner:   not implemented yet",
                     "  Voice notify:  not implemented yet",
                 ]
             ),
         }
+    if sub == "assign":
+        if len(parts) < 3:
+            return {
+                "success": False,
+                "error": "usage: /dev assign <repo_id> <task description> [--worker codex|claude|hermes]",
+            }
+        worker = ""
+        words: list[str] = []
+        rest = parts[2:]
+        idx = 0
+        while idx < len(rest):
+            if rest[idx] == "--worker" and idx + 1 < len(rest):
+                worker = rest[idx + 1]
+                idx += 2
+            else:
+                words.append(rest[idx])
+                idx += 1
+        result = assign_dev_task(config, parts[1], " ".join(words), worker=worker)
+        if result.get("success"):
+            return {
+                "success": True,
+                "output": (
+                    f"Dev task created: {result['task_id']}\n"
+                    f"  Repo:   {result['repo_id']}\n"
+                    f"  Worker: {result['worker']}\n"
+                    f"  Title:  {result['title']}"
+                ),
+            }
+        return {"success": False, "error": result.get("error") or "failed to create dev task"}
+    if sub == "tasks":
+        repo_filter = parts[1] if len(parts) > 1 else ""
+        if repo_filter and get_repository(config, repo_filter) is None:
+            return {"success": False, "error": f"repository not found: {repo_filter}"}
+        items = list_dev_tasks(config, repo_id=repo_filter)
+        return {"success": True, "output": format_dev_tasks(items, repo_filter)}
     if sub in {"repos", "repositories"}:
         return {"success": True, "output": format_repositories(load_repositories(config))}
     if sub == "repo":
@@ -371,4 +565,4 @@ def handle_dev_command(
             return {"success": False, "error": "usage: /dev open <repo_id>"}
         result = open_repository(config, parts[1], opener=opener)
         return {"success": bool(result.get("success")), "output": format_open_result(result), "error": result.get("error")}
-    return {"success": False, "error": "usage: /dev [status|repos|repo show|repo add|open]"}
+    return {"success": False, "error": "usage: /dev [status|repos|repo show|repo add|assign|tasks|open]"}
