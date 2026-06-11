@@ -1829,6 +1829,10 @@ DEFAULT_CONFIG = {
             # Permission mode passed to `claude -p` when file edits are allowed:
             # acceptEdits | bypassPermissions | "" (Claude Code default mode)
             "claude_permission_mode": "acceptEdits",
+            # Claude Code permission rules allowed to run without prompting
+            # (headless runs deny everything else). Add test commands here,
+            # e.g. ["Bash(flutter test:*)", "Bash(uv run pytest:*)"].
+            "claude_allowed_tools": [],
             "timeout_seconds": 900,
             "max_output_chars": 6000,
             "allow_file_edits": True,

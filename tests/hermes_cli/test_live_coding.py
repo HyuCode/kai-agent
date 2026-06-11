@@ -97,6 +97,33 @@ def test_build_delegate_command_for_claude_uses_headless_print_mode():
     assert "Do not run git commit or git push" in prompt
 
 
+def test_build_delegate_command_for_claude_passes_allowed_tools():
+    cfg = load_live_coding_config(
+        {
+            "stream_assistant": {
+                "coding": {
+                    "delegate_to": "claude",
+                    "claude_allowed_tools": ["Bash(flutter test:*)", " ", "Bash(uv run pytest:*)"],
+                }
+            }
+        }
+    )
+
+    command = build_delegate_command("Fix and test", cfg)
+
+    idx = command.index("--allowedTools")
+    assert command[idx + 1 : idx + 3] == ["Bash(flutter test:*)", "Bash(uv run pytest:*)"]
+    assert command[idx + 3] == "--"
+
+
+def test_load_live_coding_config_accepts_allowed_tools_string():
+    cfg = load_live_coding_config(
+        {"stream_assistant": {"coding": {"claude_allowed_tools": "Bash(npm test:*)"}}}
+    )
+
+    assert cfg.claude_allowed_tools == ("Bash(npm test:*)",)
+
+
 def test_build_delegate_command_for_claude_omits_permission_mode_when_read_only():
     cfg = load_live_coding_config(
         {

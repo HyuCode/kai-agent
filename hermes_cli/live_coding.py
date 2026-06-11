@@ -58,6 +58,7 @@ class LiveCodingConfig:
     codex_path: str = "codex"
     claude_path: str = "claude"
     claude_permission_mode: str = "acceptEdits"
+    claude_allowed_tools: tuple[str, ...] = ()
     timeout_seconds: int = 900
     max_output_chars: int = 6000
     allow_file_edits: bool = True
@@ -102,11 +103,21 @@ def load_live_coding_config(config: dict[str, Any] | None) -> LiveCodingConfig:
     permission_mode = coding.get("claude_permission_mode", "acceptEdits")
     permission_mode = str(permission_mode).strip() if permission_mode is not None else ""
 
+    raw_allowed = coding.get("claude_allowed_tools")
+    if isinstance(raw_allowed, str):
+        raw_allowed = [raw_allowed]
+    allowed_tools = tuple(
+        str(rule).strip()
+        for rule in (raw_allowed if isinstance(raw_allowed, (list, tuple)) else ())
+        if str(rule).strip()
+    )
+
     return LiveCodingConfig(
         delegate_to=normalize_delegate(_str("delegate_to", "codex")),
         codex_path=_str("codex_path", "codex"),
         claude_path=_str("claude_path", "claude"),
         claude_permission_mode=permission_mode,
+        claude_allowed_tools=allowed_tools,
         timeout_seconds=_int("timeout_seconds", 900, minimum=10),
         max_output_chars=_int("max_output_chars", 6000, minimum=500),
         allow_file_edits=_bool("allow_file_edits", True),
@@ -204,6 +215,10 @@ def delegate_argv(cfg: LiveCodingConfig, prompt: str, *, delegate: str = "") -> 
         command = [cfg.claude_path, "-p"]
         if cfg.allow_file_edits and cfg.claude_permission_mode:
             command += ["--permission-mode", cfg.claude_permission_mode]
+        if cfg.claude_allowed_tools:
+            # Permission rules (e.g. "Bash(flutter test:*)") that run
+            # without prompting — this is how headless runs execute tests.
+            command += ["--allowedTools", *cfg.claude_allowed_tools]
         command += ["--", prompt]
         return command
     raise ValueError(f"unsupported live coding delegate: {target}")
