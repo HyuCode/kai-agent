@@ -116,6 +116,18 @@ def test_build_delegate_command_for_claude_passes_allowed_tools():
     assert command[idx + 3] == "--"
 
 
+def test_build_delegate_command_for_claude_passes_model():
+    cfg = load_live_coding_config(
+        {"stream_assistant": {"coding": {"delegate_to": "claude", "claude_model": "fable"}}}
+    )
+
+    command = build_delegate_command("Fix it", cfg)
+
+    idx = command.index("--model")
+    assert command[idx + 1] == "fable"
+    assert command.index("--model") < command.index("--")
+
+
 def test_load_live_coding_config_accepts_allowed_tools_string():
     cfg = load_live_coding_config(
         {"stream_assistant": {"coding": {"claude_allowed_tools": "Bash(npm test:*)"}}}

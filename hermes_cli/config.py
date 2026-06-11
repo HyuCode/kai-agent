@@ -1826,6 +1826,9 @@ DEFAULT_CONFIG = {
             "delegate_to": "codex",  # codex | claude (Claude Code)
             "codex_path": "codex",
             "claude_path": "claude",
+            # Model passed to `claude -p --model` (alias like "fable" /
+            # "opus" / "sonnet" or a full model id). Empty = CLI default.
+            "claude_model": "",
             # Permission mode passed to `claude -p` when file edits are allowed:
             # acceptEdits | bypassPermissions | "" (Claude Code default mode)
             "claude_permission_mode": "acceptEdits",

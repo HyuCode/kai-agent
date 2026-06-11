@@ -57,6 +57,7 @@ class LiveCodingConfig:
     delegate_to: str = "codex"
     codex_path: str = "codex"
     claude_path: str = "claude"
+    claude_model: str = ""
     claude_permission_mode: str = "acceptEdits"
     claude_allowed_tools: tuple[str, ...] = ()
     timeout_seconds: int = 900
@@ -116,6 +117,7 @@ def load_live_coding_config(config: dict[str, Any] | None) -> LiveCodingConfig:
         delegate_to=normalize_delegate(_str("delegate_to", "codex")),
         codex_path=_str("codex_path", "codex"),
         claude_path=_str("claude_path", "claude"),
+        claude_model=str(coding.get("claude_model") or "").strip(),
         claude_permission_mode=permission_mode,
         claude_allowed_tools=allowed_tools,
         timeout_seconds=_int("timeout_seconds", 900, minimum=10),
@@ -213,6 +215,8 @@ def delegate_argv(cfg: LiveCodingConfig, prompt: str, *, delegate: str = "") -> 
         # prompts cannot be answered headlessly, so file edits need an
         # auto-approving permission mode; read-only runs work with the default.
         command = [cfg.claude_path, "-p"]
+        if cfg.claude_model:
+            command += ["--model", cfg.claude_model]
         if cfg.allow_file_edits and cfg.claude_permission_mode:
             command += ["--permission-mode", cfg.claude_permission_mode]
         if cfg.claude_allowed_tools:
