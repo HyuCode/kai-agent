@@ -522,6 +522,12 @@ def _compose_worker_prompt(task_text: str, repo: RepositoryInfo, config: dict[st
         rules.append("Do not run git commit; leave changes uncommitted for review.")
     else:
         rules.append("You may create focused local git commits on the current branch.")
+    rules.append(
+        "When you finish, write the pull-request description to a file named "
+        "PR_BODY.md in the working directory root, in the same language as the "
+        "task (sections: 概要 / 変更内容 / テスト). Start it with a '# <PR title>' "
+        "heading. Do NOT commit PR_BODY.md."
+    )
     return "\n".join(
         [
             "Follow these rules for this delegated task:",
@@ -1060,6 +1066,72 @@ def assign_dev_task_from_issue(
     )
 
 
+_PR_BODY_FILENAME = "PR_BODY.md"
+_PR_BODY_MAX_CHARS = 6000
+_PR_DIFF_MAX_CHARS = 12000
+
+
+def _generate_pr_body(
+    config: dict[str, Any] | None,
+    worker: str,
+    worktree_path: str,
+    base: str,
+    task_text: str,
+    *,
+    runner: Opener | None = None,
+) -> str:
+    """Ask the delegate CLI to write a PR description from the actual diff."""
+    from hermes_cli.live_coding import sanitize_for_stream
+
+    commits = (_run_git(["-C", worktree_path, "log", "--oneline", f"{base}..HEAD"]).stdout or "").strip()
+    stat = (_run_git(["-C", worktree_path, "diff", "--stat", f"{base}...HEAD"]).stdout or "").strip()
+    patch = _run_git(["-C", worktree_path, "diff", f"{base}...HEAD"]).stdout or ""
+    if len(patch) > _PR_DIFF_MAX_CHARS:
+        patch = patch[:_PR_DIFF_MAX_CHARS] + "\n... (truncated)"
+    prompt = "\n".join(
+        [
+            "Write a GitHub pull-request description for the change below.",
+            "Use the same language as the task description (Japanese task -> Japanese PR).",
+            "Structure: a '# <PR title>' heading, then sections 概要 (what & why),",
+            "変更内容 (bullet list of changes), テスト (what was run or verified).",
+            "Output ONLY the markdown body — no preamble and no surrounding code fence.",
+            "",
+            "Task:",
+            task_text.strip()[:1500],
+            "",
+            "Commits:",
+            commits,
+            "",
+            "Diff stat:",
+            stat,
+            "",
+            "Diff:",
+            patch,
+        ]
+    )
+    try:
+        command = _worker_argv(config, worker, prompt)
+    except ValueError:
+        return ""
+    if shutil.which(command[0]) is None:
+        return ""
+    run = runner or (lambda argv: _run_external(argv, timeout=300))
+    try:
+        proc = run(command)
+    except Exception:
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return sanitize_for_stream((proc.stdout or "").strip(), max_chars=_PR_BODY_MAX_CHARS)
+
+
+def _split_pr_title(body_text: str, fallback_title: str) -> tuple[str, str]:
+    lines = body_text.strip().splitlines()
+    if lines and lines[0].startswith("# "):
+        return lines[0][2:].strip() or fallback_title, "\n".join(lines[1:]).strip()
+    return fallback_title, body_text.strip()
+
+
 def create_dev_pr(
     config: dict[str, Any] | None,
     task_id: str,
@@ -1101,6 +1173,19 @@ def create_dev_pr(
     base = repo.default_branch or "main"
     dev = _dev_config(config)
     commit_gated = bool(dev.get("require_approval_for_commit", False))
+
+    # The worker writes its own PR description here (see
+    # _compose_worker_prompt); consume it before the auto-commit so it
+    # never lands in the PR's file list.
+    pr_body_text = ""
+    body_file = Path(worktree_path) / _PR_BODY_FILENAME
+    if body_file.is_file():
+        try:
+            pr_body_text = body_file.read_text(encoding="utf-8")[:_PR_BODY_MAX_CHARS]
+            if confirm:
+                body_file.unlink()
+        except Exception:
+            pr_body_text = ""
 
     def _counts() -> tuple[int, int]:
         status = _run_git(["-C", worktree_path, "status", "--porcelain"])
@@ -1157,19 +1242,30 @@ def create_dev_pr(
     if pushed.returncode != 0:
         return {"success": False, "error": (pushed.stderr or pushed.stdout or "git push failed").strip()}
 
-    body_lines = [f"Dev task `{clean_id}` (worker={meta.get('worker') or '-'}), created by the Hermes dev orchestrator."]
-    if meta.get("change_summary"):
-        body_lines.append(f"\nChange summary: {meta['change_summary']}")
-    if meta.get("issue"):
-        body_lines.append(f"\nCloses #{meta['issue']}")
+    worker_name = normalize_worker(str(meta.get("worker") or "")) or repo.worker
+    if not pr_body_text:
+        pr_body_text = _generate_pr_body(
+            config,
+            worker_name,
+            worktree_path,
+            base,
+            _task_text_without_meta(task.body),
+            runner=runner,
+        )
+    pr_title, body = _split_pr_title(pr_body_text, task.title)
+    if not body:
+        body = f"Dev task `{clean_id}` (worker={worker_name or '-'}), created by the Hermes dev orchestrator."
+    if meta.get("issue") and "closes #" not in body.lower():
+        body += f"\n\nCloses #{meta['issue']}"
+    body += f"\n\n---\nDev task `{clean_id}` (worker={worker_name or '-'}) — Hermes dev orchestrator"
     try:
         created = run(
             [
                 "gh", "-R", repo.github, "pr", "create",
                 "--head", branch,
                 "--base", base,
-                "--title", task.title,
-                "--body", "\n".join(body_lines),
+                "--title", pr_title,
+                "--body", body,
             ]
         )
     except Exception as exc:

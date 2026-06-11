@@ -666,7 +666,7 @@ def test_create_dev_pr_confirm_pushes_and_saves_url(worker_env):
     assert result["pr_url"] == "https://github.com/seiichi3141/proj/pull/7"
     assert calls[0][:2] == ["git", "-C"]
     assert "push" in calls[0]
-    assert calls[1][0] == "gh"
+    assert calls[-1][0] == "gh"
 
     items = list_dev_tasks(config)
     assert items[0]["pr"] == "https://github.com/seiichi3141/proj/pull/7"
@@ -674,6 +674,63 @@ def test_create_dev_pr_confirm_pushes_and_saves_url(worker_env):
     again = create_dev_pr(config, task_id, confirm=True, runner=fake_external)
     assert again["success"] is False
     assert "PR already exists" in again["error"]
+
+
+def test_create_dev_pr_uses_worker_written_pr_body(worker_env):
+    from pathlib import Path
+
+    config = _with_github(worker_env)
+    task_id, worktree = _finished_task_with_commit(config)
+    Path(worktree, "PR_BODY.md").write_text(
+        "# 確認ダイアログを追加\n\n## 概要\n誤タップ防止のための確認ダイアログ。\n\n## テスト\nflutter test 12 passed\n"
+    )
+    gh_calls = []
+
+    def fake_external(command):
+        if command[0] == "gh":
+            gh_calls.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout="https://github.com/seiichi3141/proj/pull/8\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/gh")
+        result = create_dev_pr(config, task_id, confirm=True, runner=fake_external)
+
+    assert result["success"] is True
+    argv = gh_calls[0]
+    title = argv[argv.index("--title") + 1]
+    body = argv[argv.index("--body") + 1]
+    assert title == "確認ダイアログを追加"
+    assert "誤タップ防止のための確認ダイアログ" in body
+    assert "flutter test 12 passed" in body
+    assert "Hermes dev orchestrator" in body
+    assert not Path(worktree, "PR_BODY.md").exists()
+
+
+def test_create_dev_pr_generates_body_via_delegate_when_file_missing(worker_env):
+    config = _with_github(worker_env)
+    task_id, _ = _finished_task_with_commit(config)
+    gh_calls = []
+
+    def fake_external(command):
+        if command[0] == "claude":
+            assert "Diff:" in command[-1]
+            return subprocess.CompletedProcess(
+                command, 0, stdout="# 生成タイトル\n\n## 概要\n diff から生成した説明。\n", stderr=""
+            )
+        if command[0] == "gh":
+            gh_calls.append(command)
+            return subprocess.CompletedProcess(command, 0, stdout="https://github.com/seiichi3141/proj/pull/8\n", stderr="")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/gh")
+        result = create_dev_pr(config, task_id, confirm=True, runner=fake_external)
+
+    assert result["success"] is True
+    argv = gh_calls[0]
+    assert argv[argv.index("--title") + 1] == "生成タイトル"
+    assert "diff から生成した説明" in argv[argv.index("--body") + 1]
 
 
 def test_create_dev_pr_adopts_existing_pr(worker_env):
