@@ -6,7 +6,8 @@ import type { GatewayClient } from '../gatewayClient.js'
 import type {
   ConfigFullResponse,
   ConfigMtimeResponse,
-  ReloadMcpResponse
+  ReloadMcpResponse,
+  VoiceToggleResponse
 } from '../gatewayTypes.js'
 import {
   DEFAULT_VOICE_RECORD_KEY,
@@ -182,6 +183,34 @@ export async function hydrateFullConfig(
   return cfg
 }
 
+const _autoStartRequested = (cfg: ConfigFullResponse | null): boolean => {
+  const raw = cfg?.config?.voice?.auto_start
+
+  return raw === true || (typeof raw === 'string' && ['1', 'on', 'true', 'yes'].includes(raw.trim().toLowerCase()))
+}
+
+// Opt-in startup voice mode (config ``voice.auto_start``). HERMES_VOICE is
+// deliberately runtime-only so a stale toggle never auto-RECs; this config
+// flag is the user's explicit, persisted intent to start listening at boot.
+export const maybeAutoStartVoice = async (
+  gw: GatewayClient,
+  cfg: ConfigFullResponse | null,
+  sid: null | string,
+  setVoiceEnabled: (v: boolean) => void,
+  setVoiceTts?: (v: boolean) => void
+): Promise<void> => {
+  if (!_autoStartRequested(cfg) || process.env.HERMES_VOICE === '1') {
+    return
+  }
+
+  const r = await quietRpc<VoiceToggleResponse>(gw, 'voice.toggle', { action: 'on', session_id: sid })
+
+  if (r?.enabled) {
+    setVoiceEnabled(true)
+    setVoiceTts?.(!!r.tts)
+  }
+}
+
 export const applyDisplay = (
   cfg: ConfigFullResponse | null,
   setBell: (v: boolean) => void,
@@ -225,6 +254,7 @@ export function useConfigSync({
   setBellOnComplete,
   setVoiceEnabled,
   setVoiceRecordKey,
+  setVoiceTts,
   sid
 }: UseConfigSyncOptions) {
   const mtimeRef = useRef(0)
@@ -242,8 +272,10 @@ export function useConfigSync({
     quietRpc<ConfigMtimeResponse>(gw, 'config.get', { key: 'mtime' }).then(r => {
       mtimeRef.current = Number(r?.mtime ?? 0)
     })
-    void hydrateFullConfig(gw, setBellOnComplete, setVoiceRecordKey)
-  }, [gw, setBellOnComplete, setVoiceEnabled, setVoiceRecordKey, sid])
+    void hydrateFullConfig(gw, setBellOnComplete, setVoiceRecordKey).then(cfg =>
+      maybeAutoStartVoice(gw, cfg, sid, setVoiceEnabled, setVoiceTts)
+    )
+  }, [gw, setBellOnComplete, setVoiceEnabled, setVoiceRecordKey, setVoiceTts, sid])
 
   useEffect(() => {
     if (!sid) {
@@ -283,6 +315,7 @@ export interface UseConfigSyncOptions {
   gw: GatewayClient
   setBellOnComplete: (v: boolean) => void
   setVoiceEnabled: (v: boolean) => void
+  setVoiceTts?: (v: boolean) => void
   setVoiceRecordKey?: (v: ParsedVoiceRecordKey) => void
   sid: null | string
 }

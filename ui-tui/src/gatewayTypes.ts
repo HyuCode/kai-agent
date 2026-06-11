@@ -96,6 +96,8 @@ export interface ConfigVoiceConfig {
   // Raw `yaml.safe_load()` value from config; may be non-string if hand-edited.
   // Callers must normalize/validate at runtime (parseVoiceRecordKey()).
   record_key?: unknown
+  // Start voice mode automatically when the TUI boots (raw YAML value).
+  auto_start?: unknown
 }
 
 export interface ConfigFullResponse {

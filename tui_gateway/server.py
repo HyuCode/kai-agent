@@ -10179,6 +10179,14 @@ def _(rid, params: dict) -> dict:
         overlay_url = _ensure_live_overlay_server() if enabled else None
         if enabled:
             _start_dev_voice_watcher()
+            # CLI parity: ``voice.auto_tts`` turns speech output on together
+            # with the mode (cli.py applies the same flag in voice mode).
+            try:
+                voice_cfg = _load_cfg().get("voice")
+                if isinstance(voice_cfg, dict) and voice_cfg.get("auto_tts", False):
+                    os.environ["HERMES_VOICE_TTS"] = "1"
+            except Exception:
+                pass
         else:
             _stop_dev_voice_watcher()
 

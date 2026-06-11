@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { $uiState, resetUiState } from '../app/uiStore.js'
 import {
+  maybeAutoStartVoice,
   applyDisplay,
   hydrateFullConfig,
   normalizeBusyInputMode,
@@ -456,5 +457,49 @@ describe('hydrateFullConfig', () => {
     // display flags (round-2 / round-8 invariant).
     await expect(hydrateFullConfig(gw, setBell)).resolves.toBeTruthy()
     expect(setBell).toHaveBeenCalledWith(true)
+  })
+})
+
+describe('maybeAutoStartVoice', () => {
+  const makeGw = (payload: unknown) =>
+    ({ request: vi.fn(() => Promise.resolve(payload)), on: vi.fn(), off: vi.fn() }) as any
+
+  beforeEach(() => {
+    delete process.env.HERMES_VOICE
+  })
+
+  it('calls voice.toggle on and applies enabled/tts when auto_start is set', async () => {
+    const gw = makeGw({ enabled: true, tts: true })
+    const setVoiceEnabled = vi.fn()
+    const setVoiceTts = vi.fn()
+
+    await maybeAutoStartVoice(gw, { config: { voice: { auto_start: true } } }, 's1', setVoiceEnabled, setVoiceTts)
+
+    expect(gw.request).toHaveBeenCalledWith('voice.toggle', { action: 'on', session_id: 's1' })
+    expect(setVoiceEnabled).toHaveBeenCalledWith(true)
+    expect(setVoiceTts).toHaveBeenCalledWith(true)
+  })
+
+  it('does nothing without auto_start or when voice is already on', async () => {
+    const gw = makeGw({ enabled: true })
+    const setVoiceEnabled = vi.fn()
+
+    await maybeAutoStartVoice(gw, { config: { voice: {} } }, 's1', setVoiceEnabled)
+    expect(gw.request).not.toHaveBeenCalled()
+
+    process.env.HERMES_VOICE = '1'
+    await maybeAutoStartVoice(gw, { config: { voice: { auto_start: true } } }, 's1', setVoiceEnabled)
+    expect(gw.request).not.toHaveBeenCalled()
+    delete process.env.HERMES_VOICE
+  })
+
+  it('accepts yaml string truthy values and ignores failures', async () => {
+    const failing = { request: vi.fn(() => Promise.reject(new Error('boom'))), on: vi.fn(), off: vi.fn() } as any
+    const setVoiceEnabled = vi.fn()
+
+    await maybeAutoStartVoice(failing, { config: { voice: { auto_start: 'true' } } }, 's1', setVoiceEnabled)
+
+    expect(failing.request).toHaveBeenCalled()
+    expect(setVoiceEnabled).not.toHaveBeenCalled()
   })
 })
