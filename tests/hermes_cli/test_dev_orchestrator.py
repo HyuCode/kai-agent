@@ -409,6 +409,56 @@ def test_run_dev_task_validates_task_and_status(worker_env):
     assert "not ready" in second["error"]
 
 
+def test_start_dev_task_returns_immediately_and_completes_in_background(worker_env):
+    from hermes_cli.dev_orchestrator import start_dev_task
+
+    created = assign_dev_task(worker_env, "proj", "Background work")
+    task_id = created["task_id"]
+
+    def fake_worker(command):
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/x")
+        result = start_dev_task(worker_env, task_id, runner=fake_worker)
+        assert result["success"] is True
+        assert result["status"] == "started"
+        result["thread"].join(timeout=30)
+
+    from hermes_cli import kanban_db as kb
+
+    with kb.connect_closing() as conn:
+        task = kb.get_task(conn, task_id)
+    assert task.status == "done"
+
+
+def test_handle_dev_command_run_is_async_by_default(worker_env):
+    created = assign_dev_task(worker_env, "proj", "Async via command")
+
+    def fake_worker(command):
+        return subprocess.CompletedProcess(command, 0, stdout="ok", stderr="")
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("hermes_cli.dev_orchestrator.shutil.which", lambda _name: "/usr/bin/x")
+        mp.setattr("hermes_cli.dev_orchestrator._default_worker_run", lambda *a, **k: fake_worker(a[0]))
+        result = handle_dev_command(f"run {created['task_id']}", config=worker_env)
+
+        import time
+
+        from hermes_cli import kanban_db as kb
+
+        deadline = time.time() + 30
+        status = "running"
+        while time.time() < deadline and status == "running":
+            with kb.connect_closing() as conn:
+                status = kb.get_task(conn, created["task_id"]).status
+            time.sleep(0.05)
+
+    assert result["success"] is True
+    assert "Dev task started" in result["output"]
+    assert status == "done"
+
+
 def test_run_dev_task_rejects_hermes_worker(worker_env):
     created = assign_dev_task(worker_env, "proj", "Use hermes lane", worker="hermes")
 

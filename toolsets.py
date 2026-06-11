@@ -73,6 +73,9 @@ _HERMES_CORE_TOOLS = [
     "kanban_unblock",
     # Computer use (macOS, gated on cua-driver being installed via check_fn)
     "computer_use",
+    # Dev orchestrator — gated via check_fn in tools/dev_tools.py (needs
+    # dev_orchestrator.enabled and at least one registered repository).
+    "dev_status", "dev_assign", "dev_run",
 ]
 
 # Webhook events may originate from untrusted third-party content (for example,
@@ -164,6 +167,16 @@ TOOLSETS = {
             "and publish progress to the OBS overlay"
         ),
         "tools": ["live_coding_delegate"],
+        "includes": []
+    },
+
+    "dev": {
+        "description": (
+            "Development orchestrator tools: inspect registered repositories and "
+            "dev tasks, assign new tasks, and start coding-CLI workers in "
+            "isolated git worktrees"
+        ),
+        "tools": ["dev_status", "dev_assign", "dev_run"],
         "includes": []
     },
     

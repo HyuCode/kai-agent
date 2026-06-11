@@ -551,15 +551,12 @@ def _write_worker_log(task_id: str, text: str) -> str:
         return ""
 
 
-def run_dev_task(
+def _prepare_dev_run(
     config: dict[str, Any] | None,
     task_id: str,
-    *,
-    runner: Opener | None = None,
 ) -> dict[str, Any]:
-    """Run one dev task to completion in a dedicated worktree (Phase 4)."""
+    """Validate, create the worktree, and claim the task (ready -> running)."""
     from hermes_cli import kanban_db as kb
-    from hermes_cli.live_coding import sanitize_for_stream
 
     clean_id = str(task_id or "").strip()
     if not clean_id:
@@ -607,6 +604,82 @@ def run_dev_task(
         _update_task_meta(clean_id, meta)
     except Exception:
         pass
+    return {
+        "success": True,
+        "task_id": clean_id,
+        "worker": worker,
+        "branch": branch,
+        "worktree_path": worktree_path,
+        "command": command,
+        "repo": repo,
+        "meta": meta,
+    }
+
+
+def run_dev_task(
+    config: dict[str, Any] | None,
+    task_id: str,
+    *,
+    runner: Opener | None = None,
+) -> dict[str, Any]:
+    """Run one dev task to completion in a dedicated worktree (Phase 4)."""
+    prepared = _prepare_dev_run(config, task_id)
+    if not prepared.get("success"):
+        return prepared
+    return _execute_dev_run(config, prepared, runner=runner)
+
+
+def start_dev_task(
+    config: dict[str, Any] | None,
+    task_id: str,
+    *,
+    runner: Opener | None = None,
+) -> dict[str, Any]:
+    """Claim a dev task and run the worker in a background thread.
+
+    Returns immediately; progress lands on the Kanban task (and the
+    voice notifier announces claimed/completed/blocked events).
+    """
+    import threading
+
+    prepared = _prepare_dev_run(config, task_id)
+    if not prepared.get("success"):
+        return prepared
+
+    thread = threading.Thread(
+        target=_execute_dev_run,
+        args=(config, prepared),
+        kwargs={"runner": runner},
+        name=f"dev-worker-{prepared['task_id']}",
+        daemon=True,
+    )
+    thread.start()
+    return {
+        "success": True,
+        "status": "started",
+        "task_id": prepared["task_id"],
+        "worker": prepared["worker"],
+        "branch": prepared["branch"],
+        "worktree_path": prepared["worktree_path"],
+        "thread": thread,
+    }
+
+
+def _execute_dev_run(
+    config: dict[str, Any] | None,
+    prepared: dict[str, Any],
+    *,
+    runner: Opener | None = None,
+) -> dict[str, Any]:
+    from hermes_cli import kanban_db as kb
+    from hermes_cli.live_coding import sanitize_for_stream
+
+    clean_id = str(prepared["task_id"])
+    worker = str(prepared["worker"])
+    branch = str(prepared["branch"])
+    worktree_path = str(prepared["worktree_path"])
+    command = list(prepared["command"])
+    repo = prepared["repo"]
 
     run = runner or _default_worker_run
     timeout = _worker_timeout_seconds(config)
@@ -1119,12 +1192,28 @@ def handle_dev_command(
         return {"success": True, "output": format_dev_tasks(items, repo_filter)}
     if sub == "run":
         if len(parts) < 2:
-            return {"success": False, "error": "usage: /dev run <task_id>"}
-        result = run_dev_task(config, parts[1])
+            return {"success": False, "error": "usage: /dev run <task_id> [--wait]"}
+        if "--wait" in parts[2:]:
+            result = run_dev_task(config, parts[1])
+            return {
+                "success": bool(result.get("success")),
+                "output": format_run_result(result),
+                "error": result.get("error"),
+            }
+        result = start_dev_task(config, parts[1])
+        if not result.get("success"):
+            return {"success": False, "error": result.get("error")}
         return {
-            "success": bool(result.get("success")),
-            "output": format_run_result(result),
-            "error": result.get("error"),
+            "success": True,
+            "output": "\n".join(
+                [
+                    f"Dev task started: {result['task_id']}",
+                    f"  Worker:   {result['worker']}",
+                    f"  Branch:   {result['branch']}",
+                    f"  Worktree: {result['worktree_path']}",
+                    "  Progress: voice notifications + /dev tasks (done/blocked when finished)",
+                ]
+            ),
         }
     if sub == "issue":
         if len(parts) < 2:
