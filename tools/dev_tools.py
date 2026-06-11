@@ -122,7 +122,11 @@ registry.register(
             "tracked on the Kanban board and later executed by a coding CLI "
             "worker (codex or claude) in an isolated git worktree. Use when the "
             "user asks to fix/implement something in one of their repositories. "
-            "After assigning, call dev_run to actually start the work."
+            "IMPORTANT: when the user references a GitHub issue number (e.g. "
+            "'#471', 'Issue 471'), pass it via the issue parameter — the issue "
+            "title/body is then fetched and embedded; the worker cannot read "
+            "GitHub itself, so a bare task text like '#471 please' gives it "
+            "nothing to work with. After assigning, call dev_run to start."
         ),
         "parameters": {
             "type": "object",
