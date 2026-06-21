@@ -1,0 +1,52 @@
+{
+  "$comment": "Project permissions for hermes-agent. Used by interactive Claude Code AND by `claude -p` loop runs (loop/loop.sh runs with --permission-mode acceptEdits). 'allow' pre-approves the verification/dev commands the dev loop needs so it can run unattended; 'deny' blocks pushes, secret reads, and destructive commands so an autonomous loop cannot exfiltrate or wreck the tree.",
+  "permissions": {
+    "allow": [
+      "Bash(scripts/run_tests.sh:*)",
+      "Bash(./scripts/run_tests.sh:*)",
+      "Bash(bash scripts/run_tests.sh:*)",
+      "Bash(loop/verify.sh:*)",
+      "Bash(./loop/verify.sh:*)",
+      "Bash(bash loop/verify.sh:*)",
+      "Bash(python scripts/check-windows-footguns.py:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(ruff:*)",
+      "Bash(uv tool run ruff:*)",
+      "Bash(uvx ruff:*)",
+      "Bash(python -c:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git switch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(rg:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(sed -n:*)",
+      "Read(//Users/seiichiro/apps/seiichi3141/hermes-agent/**)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(rm -rf:*)",
+      "Bash(sudo:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/.env)",
+      "Read(./**/*.key)",
+      "Read(./**/*.pem)"
+    ]
+  }
+}
