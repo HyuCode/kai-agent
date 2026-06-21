@@ -20,7 +20,12 @@
     "audit:tui": "npm audit --workspace ui-tui",
     "audit:fix:root": "npm audit fix --workspaces=false",
     "audit:fix:web": "npm audit fix --workspace web",
-    "audit:fix:tui": "npm audit fix --workspace ui-tui"
+    "audit:fix:tui": "npm audit fix --workspace ui-tui",
+    "lint:md": "markdownlint-cli2",
+    "lint:md:fix": "markdownlint-cli2 --fix",
+    "format": "prettier --write \"docs/**/*.md\" \"loop/**/*.md\" CLAUDE.md",
+    "format:check": "prettier --check \"docs/**/*.md\" \"loop/**/*.md\" CLAUDE.md",
+    "docs:fix": "pnpm run format && pnpm run lint:md:fix"
   },
   "repository": {
     "type": "git",
@@ -42,5 +47,9 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "^0.22.1",
+    "prettier": "^3.8.4"
   }
 }

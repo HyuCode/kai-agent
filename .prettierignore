@@ -1,0 +1,44 @@
+# Prettier scope: this fork manages formatting for its OWN docs only.
+# The format/format:check scripts pass explicit globs (docs/, loop/, CLAUDE.md),
+# so everything else is effectively out of scope. This file is a safety net.
+
+# Dependencies / build output / vendored
+node_modules
+**/node_modules
+.venv
+dist
+build
+out
+coverage
+locales
+*.min.*
+
+# Lockfiles & generated
+pnpm-lock.yaml
+package-lock.json
+uv.lock
+
+# JS/TS workspaces (own tooling)
+apps
+ui-tui
+web
+website
+
+# Upstream-managed Markdown at the repo root (anchored so docs/ & loop/ READMEs
+# are still formatted). Avoids churn & merge conflicts on the fork.
+/README.md
+/README.zh-CN.md
+/RELEASE_*.md
+/AGENTS.md
+/CONTRIBUTING.md
+/SECURITY.md
+/hermes-already-has-routines.md
+
+# Upstream-tracked docs that live under docs/ (leave as upstream wrote them).
+docs/design/profile-builder.md
+docs/kanban/
+docs/middleware/
+docs/observability/
+docs/security/
+docs/rca-ssl-cacert-post-git-pull.md
+docs/plans/2026-06-09-003-fix-telegram-stream-overflow-continuations-plan.md
