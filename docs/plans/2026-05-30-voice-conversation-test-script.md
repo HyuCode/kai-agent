@@ -433,13 +433,13 @@ Hermes を配信用 AI アシスタントとして使う前提で、音声入力
 Scenario:
 Result: PASS / WARN / FAIL
 Observed user messages:
-- 
+-
 Unexpected submit:
-- 
+-
 Assistant response:
-- 
+-
 Notes:
-- 
+-
 ```
 
 ## 録音ベースの評価環境案

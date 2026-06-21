@@ -344,9 +344,9 @@ TUI の debug line に出す。配信中は常に非表示にする。
 
 参考:
 
-- https://developers.deepgram.com/reference/speech-to-text/listen-streaming
-- https://developers.deepgram.com/docs/live-streaming-audio
-- https://deepgram.com/pricing
+- <https://developers.deepgram.com/reference/speech-to-text/listen-streaming>
+- <https://developers.deepgram.com/docs/live-streaming-audio>
+- <https://deepgram.com/pricing>
 
 ### 2. Fish Audio TTS
 
@@ -398,6 +398,7 @@ TUI では `agent.log` に turn 単位の計測ログを出す。配信中に「
 
 `/stream status` は設定値に加えて runtime の `Voice mode`、`Voice TTS`、
 `Streaming STT running`、`Overlay URL` を表示する。
+
 - Fish Audio の `model` ヘッダーを設定で切り替えられるようにする。初期値は `s2-pro`。
 - 汎用再生用に `mp3`、低遅延や voice-message delivery 用に必要なら `opus` に対応する。
 - Hermes や platform が完全な音声ファイルを期待する場合は file output に fallback する。
@@ -431,9 +432,9 @@ tts:
 
 参考:
 
-- https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech.md
-- https://docs.fish.audio/api-reference/introduction.md
-- https://docs.fish.audio/api-reference/openapi.json
+- <https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech.md>
+- <https://docs.fish.audio/api-reference/introduction.md>
+- <https://docs.fish.audio/api-reference/openapi.json>
 
 ### 3. YouTube Live Chat Ingestion
 
@@ -487,8 +488,8 @@ platform plugin に移す。
 
 参考:
 
-- https://developers.google.com/youtube/v3/live/docs/liveChatMessages
-- https://developers.google.com/youtube/v3/live/docs/liveChatMessages/list
+- <https://developers.google.com/youtube/v3/live/docs/liveChatMessages>
+- <https://developers.google.com/youtube/v3/live/docs/liveChatMessages/list>
 
 ### 4. Stream Overlay / OBS Control Plugin
 
@@ -534,7 +535,7 @@ Browser Source を先に選ぶ理由:
 
 参考:
 
-- https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md#setinputsettings
+- <https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md#setinputsettings>
 
 ### 5. Stream Response Router
 
@@ -775,7 +776,7 @@ stream_assistant:
 - [x] 選別チャット表示とアシスタント反応の手順を入れる。
 - [x] obs scene switching を行う条件を入れる。
 - [x] `/stream game` でゲーム実況に必要な voice / TTS / streaming STT /
-  overlay 設定を一括有効化する。
+      overlay 設定を一括有効化する。
 
 検証:
 

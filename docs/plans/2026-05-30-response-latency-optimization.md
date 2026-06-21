@@ -49,13 +49,13 @@ microphone
 
 まずは以下を目標値にする。
 
-| 区間 | 現状 | 目標 |
-|---|---:|---:|
-| 発話終了予測 | 約 800-3000 ms | 300-800 ms |
-| LLM first token | model依存 | 300-900 ms |
-| 字幕 first assistant text | LLM first token後ほぼ即時 | 維持 |
-| TTS first audio | final response後 | LLM first sentence後 300-800 ms |
-| 体感 first voice | 数秒 | 1.0-2.0 秒以内 |
+| 区間                      |                      現状 |                            目標 |
+| ------------------------- | ------------------------: | ------------------------------: |
+| 発話終了予測              |            約 800-3000 ms |                      300-800 ms |
+| LLM first token           |                 model依存 |                      300-900 ms |
+| 字幕 first assistant text | LLM first token後ほぼ即時 |                            維持 |
+| TTS first audio           |          final response後 | LLM first sentence後 300-800 ms |
+| 体感 first voice          |                      数秒 |                  1.0-2.0 秒以内 |
 
 品質優先時は 2 秒台でもよいが、掛け合いコンテンツとしては「短い一言」が 1 秒台で返ることを
 最優先にする。
@@ -438,6 +438,6 @@ tts:
 
 ## 参考
 
-- Fish Audio WebSocket TTS: https://docs.fish.audio/api-reference/endpoint/websocket/tts-live
-- Fish Audio Python WebSocket guide: https://docs.fish.audio/sdk-reference/python/websocket
-- Fish Audio Text-to-Speech guide: https://docs.fish.audio/sdk-reference/python/text-to-speech
+- Fish Audio WebSocket TTS: <https://docs.fish.audio/api-reference/endpoint/websocket/tts-live>
+- Fish Audio Python WebSocket guide: <https://docs.fish.audio/sdk-reference/python/websocket>
+- Fish Audio Text-to-Speech guide: <https://docs.fish.audio/sdk-reference/python/text-to-speech>
