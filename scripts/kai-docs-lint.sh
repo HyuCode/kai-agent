@@ -12,10 +12,12 @@ cd "$(dirname "$0")/.."
 MARKDOWNLINT=markdownlint-cli2@0.18.1
 PRETTIER=prettier@3.6.2
 
+GLOBS=("docs/kai/**/*.md" "kai-services/**/*.md" "CLAUDE.md" ".claude/agents/*.md")
+
 if [[ "${1:-}" == "--fix" ]]; then
-  npx --yes "$PRETTIER" --write "docs/kai/**/*.md" "CLAUDE.md" ".claude/agents/*.md"
+  npx --yes "$PRETTIER" --write "${GLOBS[@]}"
   npx --yes "$MARKDOWNLINT" --fix
 else
-  npx --yes "$PRETTIER" --check "docs/kai/**/*.md" "CLAUDE.md" ".claude/agents/*.md"
+  npx --yes "$PRETTIER" --check "${GLOBS[@]}"
   npx --yes "$MARKDOWNLINT"
 fi

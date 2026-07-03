@@ -174,6 +174,7 @@ POST http://127.0.0.1:8200/say
 | 8300     | avatar 制御（表情 WS 等）   | 127.0.0.1               |
 | 8100     | mac-aquestalk `/synthesize` | Mac の Tailscale IP     |
 | 4455     | obs-websocket               | 127.0.0.1               |
+| 5900     | x11vnc（リモート GUI）      | サーバーの Tailscale IP |
 | （外部） | ローカル LLM `/v1`          | Windows の Tailscale IP |
 
 ### 5.3 秘匿情報

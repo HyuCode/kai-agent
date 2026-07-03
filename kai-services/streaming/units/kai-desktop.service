@@ -1,0 +1,15 @@
+# XFCE デスクトップセッション（:0 上）
+[Unit]
+Description=kai XFCE desktop on :0
+After=kai-xorg.service
+Requires=kai-xorg.service
+
+[Service]
+Environment=DISPLAY=:0
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 30); do xdpyinfo >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1'
+ExecStart=/usr/bin/startxfce4
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

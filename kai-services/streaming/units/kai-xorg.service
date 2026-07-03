@@ -1,0 +1,11 @@
+# 永続 X サーバー（:0, dummy ドライバ）
+[Unit]
+Description=kai Xorg dummy display :0
+
+[Service]
+ExecStart=/usr/lib/xorg/Xorg :0 -noreset -nolisten tcp
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

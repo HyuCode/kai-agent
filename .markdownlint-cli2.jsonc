@@ -2,7 +2,7 @@
 // 実行: scripts/kai-docs-lint.sh [--fix]
 {
   // .claude/agents/*.md は frontmatter+プロンプト本文の定義ファイルで文書ではないため lint 対象外（prettier のみ適用）
-  "globs": ["docs/kai/**/*.md", "CLAUDE.md"],
+  "globs": ["docs/kai/**/*.md", "kai-services/**/*.md", "CLAUDE.md"],
   "config": {
     "default": true,
     // 行長制限なし（日本語の長文・テーブルのため。プロトタイプ踏襲）

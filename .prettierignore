@@ -10,4 +10,5 @@ docs/*
 .claude/*
 !.claude/agents/
 !.claude/agents/**
-# kai-services/ を作成したらここに追加する
+!kai-services/
+!kai-services/**
