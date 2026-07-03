@@ -20,6 +20,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **2 つの絶対原則** — (1) 会話単位のプロンプトキャッシュは不可侵、(2) コアは narrow waist で機能はエッジ（plugin/skill/CLI）に置く。詳細は `AGENTS.md` 冒頭と "The Footprint Ladder"。
 - **テスト** — 必ず `scripts/run_tests.sh` 経由（`pytest` 直叩き禁止）。単一テストは `scripts/run_tests.sh tests/agent/test_foo.py::test_x`。
 - **Lint / 型** — `ruff check .` と `ty check`（設定は `pyproject.toml`）。
+- **kai ドキュメントの lint / format** — `scripts/kai-docs-lint.sh [--fix]`（prettier + markdownlint。対象は kai 所有ファイルのみ = `docs/kai/`・`CLAUDE.md`・`.claude/agents/`。**upstream のファイルは整形しない** — merge コンフリクト防止のため `.prettierignore` は allowlist 方式）。
 - **TypeScript**（`ui-tui` / `apps/desktop` / `web`）— `ui-tui` で `npm run dev|build|typecheck|lint|test`。詳細は `AGENTS.md` の TUI / Desktop セクション。
 - **設定** — 非機密は `config.yaml`（`hermes_cli/config.py` の `DEFAULT_CONFIG`）、機密のみ `.env`。新規 `HERMES_*` env var の追加は禁止。
 - **プロファイル対応** — パスは `get_hermes_home()` / `display_hermes_home()` を使い、`~/.hermes` をハードコードしない。

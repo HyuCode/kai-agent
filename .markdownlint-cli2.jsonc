@@ -1,0 +1,17 @@
+// kai 所有の Markdown だけを lint する（upstream hermes-agent のファイルは対象外 — fork 追従のため触らない）
+// 実行: scripts/kai-docs-lint.sh [--fix]
+{
+  // .claude/agents/*.md は frontmatter+プロンプト本文の定義ファイルで文書ではないため lint 対象外（prettier のみ適用）
+  "globs": ["docs/kai/**/*.md", "CLAUDE.md"],
+  "config": {
+    "default": true,
+    // 行長制限なし（日本語の長文・テーブルのため。プロトタイプ踏襲）
+    "MD013": false,
+    // 同一見出しは兄弟間のみ重複禁止（プロトタイプ踏襲）
+    "MD024": { "siblings_only": true },
+    // インライン HTML を許可（<br> 等）
+    "MD033": false,
+    // コードフェンスの言語指定は必須（ASCII 図は text を指定する）
+    "MD040": true
+  }
+}

@@ -1,0 +1,13 @@
+# fork 運用: upstream hermes-agent のファイルを prettier で触ると merge コンフリクトの温床になる。
+# 全ファイルを ignore し、kai 所有のパスだけを明示的に対象化する（allowlist 方式）。
+*
+!docs/
+docs/*
+!docs/kai/
+!docs/kai/**
+!CLAUDE.md
+!.claude/
+.claude/*
+!.claude/agents/
+!.claude/agents/**
+# kai-services/ を作成したらここに追加する

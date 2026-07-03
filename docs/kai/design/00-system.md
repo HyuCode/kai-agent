@@ -11,7 +11,7 @@
 
 ## 1. 全体構成
 
-```
+```text
 ┌─ Oracle Cloud ARM A1（Ubuntu 24.04 arm64・東京）──────────────────────┐
 │                                                                        │
 │  hermes gateway（systemd 常駐・単一プロセス）                            │
@@ -91,20 +91,20 @@
 
 ## 3. コンポーネント一覧
 
-| # | 名前 | 種別 | 責務 | 配置 | 時期 |
-| --- | --- | --- | --- | --- | --- |
-| 1 | kai_trace | plugin | 全事象ロギング（F-22）。hook で捕捉 → 秘匿マスク → JSONL 追記 + SQLite(FTS5) インデックス | `plugins/kai_trace/` | M1 |
-| 2 | kai_narrator | plugin | 実況（F-7）。hook 観測 → キュー → 背景スレッドで auxiliary `narration`（ローカル LLM）変換 → 秘匿マスク → speechd へ POST。kai_trace とイベント捕捉基盤を共有 | `plugins/kai_narrator/` | M3 |
-| 3 | speechd | 独立プロセス | 発話・字幕キュー（F-8〜F-10）。TTS 呼出・null-sink 再生・OBS 字幕更新・縮退・アバター通知。同期の正典 | `kai-services/speechd/` | M2 |
-| 4 | mac-aquestalk | 独立プロセス（Mac） | AquesTalk10 合成 HTTP サービス（`POST /synthesize` → WAV）。Tailscale bind、launchd 常駐 | `kai-services/mac-aquestalk/` | M2 |
-| 5 | streaming | 独立プロセス + skill | X(dummy) + OBS + RTMP のセットアップ・制御（F-6）。obs-websocket 制御は skill から | `kai-services/streaming/` + `skills/kai/broadcast/` | M0/M4 |
-| 6 | avatar | 独立プロセス | PuruPuruPNGTuber オーバーレイ（F-11/11b）。口パクは null-sink monitor の仮想マイク駆動 | `kai-services/avatar/` | M2ストレッチ〜ポストMVP |
-| 7 | kai/workloop | skill + cron ジョブ | 自律ループの 1 tick（F-1〜F-4, F-28/29）。GitHub から作業導出 → 完遂 or idle-play | `skills/kai/workloop/` | フェーズ1（MVP は手動指示） |
-| 8 | kai/review | skill | 隔離レビューの手順書（F-5）。delegate_task の子が使用。read-only 原則 | `skills/kai/review/` | フェーズ1 |
-| 9 | kai/retro | skill + cron ジョブ | 振り返り（F-30）。トレース分析 → 日報・改善提案 | `skills/kai/retro/` | ポストMVP |
-| 10 | kai persona | skin + コンテキスト | 「多脚思考 AI」人格・ブランディング。narrator の auxiliary プロンプトにも同一ペルソナを注入 | skin YAML | M1 |
-| 11 | kai config | config.yaml / .env | provider（codex/claude/local）、`auxiliary.narration`、cron、speechd エンドポイント等。機密のみ .env | `config.yaml` | M1 |
-| 12 | youtube_live | plugin (platform) | ライブチャット入出力（F-14〜F-16）。返信も speechd へ | `plugins/platforms/youtube_live/` | フェーズ4 |
+| #   | 名前          | 種別                 | 責務                                                                                                                                                          | 配置                                                | 時期                        |
+| --- | ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- | --------------------------- |
+| 1   | kai_trace     | plugin               | 全事象ロギング（F-22）。hook で捕捉 → 秘匿マスク → JSONL 追記 + SQLite(FTS5) インデックス                                                                     | `plugins/kai_trace/`                                | M1                          |
+| 2   | kai_narrator  | plugin               | 実況（F-7）。hook 観測 → キュー → 背景スレッドで auxiliary `narration`（ローカル LLM）変換 → 秘匿マスク → speechd へ POST。kai_trace とイベント捕捉基盤を共有 | `plugins/kai_narrator/`                             | M3                          |
+| 3   | speechd       | 独立プロセス         | 発話・字幕キュー（F-8〜F-10）。TTS 呼出・null-sink 再生・OBS 字幕更新・縮退・アバター通知。同期の正典                                                         | `kai-services/speechd/`                             | M2                          |
+| 4   | mac-aquestalk | 独立プロセス（Mac）  | AquesTalk10 合成 HTTP サービス（`POST /synthesize` → WAV）。Tailscale bind、launchd 常駐                                                                      | `kai-services/mac-aquestalk/`                       | M2                          |
+| 5   | streaming     | 独立プロセス + skill | X(dummy) + OBS + RTMP のセットアップ・制御（F-6）。obs-websocket 制御は skill から                                                                            | `kai-services/streaming/` + `skills/kai/broadcast/` | M0/M4                       |
+| 6   | avatar        | 独立プロセス         | PuruPuruPNGTuber オーバーレイ（F-11/11b）。口パクは null-sink monitor の仮想マイク駆動                                                                        | `kai-services/avatar/`                              | M2ストレッチ〜ポストMVP     |
+| 7   | kai/workloop  | skill + cron ジョブ  | 自律ループの 1 tick（F-1〜F-4, F-28/29）。GitHub から作業導出 → 完遂 or idle-play                                                                             | `skills/kai/workloop/`                              | フェーズ1（MVP は手動指示） |
+| 8   | kai/review    | skill                | 隔離レビューの手順書（F-5）。delegate_task の子が使用。read-only 原則                                                                                         | `skills/kai/review/`                                | フェーズ1                   |
+| 9   | kai/retro     | skill + cron ジョブ  | 振り返り（F-30）。トレース分析 → 日報・改善提案                                                                                                               | `skills/kai/retro/`                                 | ポストMVP                   |
+| 10  | kai persona   | skin + コンテキスト  | 「多脚思考 AI」人格・ブランディング。narrator の auxiliary プロンプトにも同一ペルソナを注入                                                                   | skin YAML                                           | M1                          |
+| 11  | kai config    | config.yaml / .env   | provider（codex/claude/local）、`auxiliary.narration`、cron、speechd エンドポイント等。機密のみ .env                                                          | `config.yaml`                                       | M1                          |
+| 12  | youtube_live  | plugin (platform)    | ライブチャット入出力（F-14〜F-16）。返信も speechd へ                                                                                                         | `plugins/platforms/youtube_live/`                   | フェーズ4                   |
 
 **命名規約:** hermes plugin は `plugins/kai_<name>/`（アンダースコア）、skill は `skills/kai/<name>/`、独立プロセスは `kai-services/<name>/`。すべて**新規ディレクトリの追加のみ**で、upstream ファイルと衝突しない。
 
@@ -154,11 +154,11 @@ POST http://127.0.0.1:8200/say
 {
   "v": 1,
   "ts": "2026-07-03T12:00:00.123Z",
-  "session_id": "...",          // hermes セッション ID（プロセス系イベントは null 可）
-  "work_thread_id": "...",      // "owner/repo#123" 形式。作業に紐付かないイベントは null
+  "session_id": "...", // hermes セッション ID（プロセス系イベントは null 可）
+  "work_thread_id": "...", // "owner/repo#123" 形式。作業に紐付かないイベントは null
   "component": "kai_trace | kai_narrator | speechd | streaming | avatar | workloop | ...",
-  "kind": "tool_call | llm_call | speech_started | ... ",  // component ごとに定義
-  "payload": { }                // kind 固有。スキーマは各コンポーネント設計書 §4 で定義
+  "kind": "tool_call | llm_call | speech_started | ... ", // component ごとに定義
+  "payload": {}, // kind 固有。スキーマは各コンポーネント設計書 §4 で定義
 }
 ```
 
@@ -168,13 +168,13 @@ POST http://127.0.0.1:8200/say
 
 ### 5.2 ポート割当（すべて localhost / Tailscale 内。公開ポートなし）
 
-| ポート | サービス | bind |
-| --- | --- | --- |
-| 8200 | speechd `/say` ほか | 127.0.0.1 |
-| 8300 | avatar 制御（表情 WS 等） | 127.0.0.1 |
-| 8100 | mac-aquestalk `/synthesize` | Mac の Tailscale IP |
-| 4455 | obs-websocket | 127.0.0.1 |
-| （外部） | ローカル LLM `/v1` | Windows の Tailscale IP |
+| ポート   | サービス                    | bind                    |
+| -------- | --------------------------- | ----------------------- |
+| 8200     | speechd `/say` ほか         | 127.0.0.1               |
+| 8300     | avatar 制御（表情 WS 等）   | 127.0.0.1               |
+| 8100     | mac-aquestalk `/synthesize` | Mac の Tailscale IP     |
+| 4455     | obs-websocket               | 127.0.0.1               |
+| （外部） | ローカル LLM `/v1`          | Windows の Tailscale IP |
 
 ### 5.3 秘匿情報
 
@@ -202,11 +202,11 @@ POST http://127.0.0.1:8200/say
 
 ## 7. リスクと未決事項
 
-| # | 事項 | 対応方針 |
-| --- | --- | --- |
-| 1 | `delegate_task` は per-call の read-only ツール制限・モデル指定が不可 → レビュー役の権限を §6.3（要件）の水準まで絞れない | MVP〜フェーズ1 は delegation の隔離コンテキストで可とする。厳格化が必要になったら reviewer profile / Kanban linked task へ昇格（ADR-2 の昇格パス） |
-| 2 | `post_llm_call` hook から最終応答テキストを取得できるかは実測確認が必要 | kai_narrator 実装時に hook kwargs を検証。取れない場合は代替 hook（`transform_llm_output` 系）で tee する |
-| 3 | cron セッションは既定 `skip_memory=True` → 作業間の学習（F-25）が自動では効かない | workloop skill 内で明示的に memory を読む / `context_from` チェーン / curator 経由を実装時に選定 |
-| 4 | self-update（F-27）と実行中 tick・配信の競合 | self-update ジョブは kai-tick の in-flight を確認してドレイン後に再起動。相互排他は cron の実行状態で判定 |
-| 5 | OBS arm64 / cua-driver の ARM 動作 | M0 PoC で検証（mvp-plan §4） |
-| 6 | narrator の実況品質（頻度・自然さ） | レート制限・重複抑制のパラメータは配信リハーサル（M4）で調整。トレースに narration イベントが残るため振り返りで改善可能 |
+| #   | 事項                                                                                                                      | 対応方針                                                                                                                                           |
+| --- | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `delegate_task` は per-call の read-only ツール制限・モデル指定が不可 → レビュー役の権限を §6.3（要件）の水準まで絞れない | MVP〜フェーズ1 は delegation の隔離コンテキストで可とする。厳格化が必要になったら reviewer profile / Kanban linked task へ昇格（ADR-2 の昇格パス） |
+| 2   | `post_llm_call` hook から最終応答テキストを取得できるかは実測確認が必要                                                   | kai_narrator 実装時に hook kwargs を検証。取れない場合は代替 hook（`transform_llm_output` 系）で tee する                                          |
+| 3   | cron セッションは既定 `skip_memory=True` → 作業間の学習（F-25）が自動では効かない                                         | workloop skill 内で明示的に memory を読む / `context_from` チェーン / curator 経由を実装時に選定                                                   |
+| 4   | self-update（F-27）と実行中 tick・配信の競合                                                                              | self-update ジョブは kai-tick の in-flight を確認してドレイン後に再起動。相互排他は cron の実行状態で判定                                          |
+| 5   | OBS arm64 / cua-driver の ARM 動作                                                                                        | M0 PoC で検証（mvp-plan §4）                                                                                                                       |
+| 6   | narrator の実況品質（頻度・自然さ）                                                                                       | レート制限・重複抑制のパラメータは配信リハーサル（M4）で調整。トレースに narration イベントが残るため振り返りで改善可能                            |
