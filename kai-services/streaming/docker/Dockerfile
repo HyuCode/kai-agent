@@ -22,6 +22,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk fonts-noto-color-emoji \
     # プロセス管理・ユーティリティ
     supervisor curl jq procps \
+    # デスクトップ操作（テキスト注入・将来のアバター=カーソル追従で使用）
+    xdotool \
     && rm -rf /var/lib/apt/lists/*
 
 # kai ユーザー（uid 1000）。全 GUI プロセスはこのユーザーで動く
