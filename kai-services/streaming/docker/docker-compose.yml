@@ -1,0 +1,25 @@
+# kai 配信スタック（Mac 上の Docker）
+# 使い方: cd kai-services/streaming/docker
+#   echo "VNC_PASSWORD=<パスワード>" > .env   # 初回のみ（.env はコミットしない）
+#   docker compose up -d --build
+services:
+  kai-streaming:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: kai-streaming
+    shm_size: 2gb
+    environment:
+      - VNC_PASSWORD=${VNC_PASSWORD:?VNC_PASSWORD を .env に設定してください}
+      - TZ=Asia/Tokyo
+    ports:
+      # Mac の localhost にのみ公開（他端末からは Mac の Tailscale 経由で）
+      # ホスト側 5901: Mac 自身の画面共有が 5900 を使用しているため
+      - "127.0.0.1:5901:5900" # VNC
+      - "127.0.0.1:4455:4455" # obs-websocket
+    volumes:
+      - kai-home:/home/kai # OBS 設定・デスクトップ状態を永続化
+    restart: unless-stopped
+
+volumes:
+  kai-home:

@@ -35,21 +35,25 @@
 ### 1.3 アーキテクチャ（MVP 時点）
 
 ```text
-┌── Oracle Cloud ARM A1（東京・Always Free/PAYG）────────────┐
-│  永続 X セッション（Xorg dummy, 1920x1080, DISPLAY=:0）      │
-│  ├─ kai（hermes fork, kai/main）… terminal/browser で作業   │
-│  ├─ OBS（arm64）… :0 をキャプチャ → RTMP → YouTube          │
-│  │    └─ 字幕テキストソース（narrator が更新）               │
-│  ├─ 音声: PipeWire null-sink（TTS WAV 再生 → OBS が取込）    │
-│  └─ x11vnc / xrdp（Tailscale 内のみ、リモート GUI）          │
-└──────────────┬────────────────────────────┘
-               │ Tailscale（全通信を私設網内に閉じる）
-     ┌─────────┴─────────┐
-     ▼                             ▼
- 自宅 Windows                     Mac
- ローカル LLM（OpenAI 互換）       AquesTalk10 合成サービス
-                                  （aquestalk_cli + 小型 HTTP ラッパ）
+┌── オーナーの Mac（M4 Pro / 12コア / 24GB、スリープ無効運用）────────┐
+│                                                                      │
+│  Docker コンテナ kai-streaming（Debian trixie / arm64）               │
+│  │  永続 X デスクトップ（Xorg dummy, 1920x1080, DISPLAY=:0, XFCE）    │
+│  │  ├─ kai（hermes fork, kai/main）… terminal/browser で作業         │
+│  │  ├─ OBS … :0 をキャプチャ → RTMP → YouTube                        │
+│  │  │    └─ 字幕テキストソース（narrator が更新）                    │
+│  │  ├─ 音声: PulseAudio null-sink kai_speaker（TTS WAV → OBS 取込）  │
+│  │  └─ x11vnc（Mac の 127.0.0.1:5901 にのみ publish）                │
+│  │                                                                   │
+│  Mac ネイティブ:                                                      │
+│  └─ AquesTalk10 合成サービス（aquestalk_cli + 小型 HTTP ラッパ）      │
+└──────────────┬───────────────────────────────────────────────────────┘
+               │ Tailscale / LAN
+               ▼
+         自宅 Windows: ローカル LLM（OpenAI 互換）
 ```
+
+（旧構成 = Oracle A1 VM は 2026-07-04 に保留へ。M0 で PoC 済み・資産は `kai-services/streaming/{setup.sh,units/,oracle/}` に温存、A1 は停止中）
 
 kai 固有コードの配置は fork 運用原則に従う（コア無改変）:
 
@@ -64,22 +68,18 @@ kai 固有コードの配置は fork 運用原則に従う（コア無改変）:
 
 各マイルストーンは「検証（runtime acceptance）」を満たして完了とする（プロトタイプの品質文化を踏襲）。
 
-### M0: インフラ PoC — Oracle ARM + 配信経路の技術検証
+### M0: インフラ PoC — Mac Docker + 配信経路の技術検証
 
-**目的:** 本計画最大の技術リスク（ARM での配信スタック）を最初に潰す。
+**目的:** 配信スタック（コンテナ内デスクトップ + OBS + RTMP）の成立を検証する。
 
-- Oracle アカウント作成 → **PAYG へアップグレード**（無料枠 4 OCPU/24GB 維持・アイドル回収回避）→ A1 インスタンス（Ubuntu 24.04 arm64、東京）作成
-- Tailscale 導入、SSH を Tailscale 内に限定（公開ポートなし）
-- 永続 X セッション構築: `xserver-xorg-video-dummy` で DISPLAY=:0（1920x1080）+ 軽量 WM（XFCE or openbox）
-- リモート GUI: x11vnc（:0 にアタッチ、Tailscale bind）または xrdp。**注意: xrdp は接続ごとに別セッションを作る構成があるため、「OBS がキャプチャする :0 と同じ画面を見られる」ことを必須条件に選定**
-- OBS（arm64 パッケージ）インストール、obs-websocket 有効化、:0 の画面キャプチャ確認
-- 音声ルーティング: PipeWire/PulseAudio の null-sink を作り、`paplay` した WAV が OBS に乗ることを確認
+- `kai-services/streaming/docker/` の compose でコンテナを構築（Xorg dummy + XFCE + PulseAudio null-sink + x11vnc + OBS + Chromium。Debian trixie ベース）
+- VNC（`vnc://127.0.0.1:5901`）でデスクトップ確認、OBS 初期設定（画面キャプチャ + kai_speaker monitor + ストリームキー + obs-websocket）
 - YouTube 側: ライブ配信有効化（**初回は有効化後 24 時間待ち**）、常設ストリームキー取得
 - **テスト配信**（限定公開）: デスクトップ + テスト音声が YouTube で視聴できること
 
-**検証:** 限定公開で 30 分配信し、1080p（不可なら 720p）で映像・音声が安定していること。CPU 使用率を記録（A1 4 OCPU で x264 エンコードの余力確認）。
+**検証:** 限定公開で 30 分配信し、1080p30 で映像・音声が安定していること。CPU 使用率（docker stats / Activity Monitor）とドロップフレーム率を記録。詳細は `docs/kai/design/streaming.md` §9。
 
-**フォールバック:** OBS が ARM で不安定なら `ffmpeg x11grab` 直接 RTMP に切替（MVP はシーン切替不要）。A1 の性能不足・確保不能なら GCP x86_64（停止運用）へ切替。
+**経緯:** 当初 Oracle A1（ARM VM）で PoC を実施し、デスクトップ・音声・VNC・再起動復帰まで検証済み（lightdm 競合等の知見はスクリプトに反映済み）。CPU/GPU 性能懸念で 2026-07-04 に Mac Docker へ方針転換。VM 版資産は温存。
 
 ### M1: kai 本体のデプロイと LLM 接続
 
