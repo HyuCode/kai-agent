@@ -1,11 +1,11 @@
 # kai 配信スタック（Linux デスクトップ + OBS + VNC）— Mac 上の Docker で稼働
 # 設計: docs/kai/design/streaming.md
-# ベースは Debian trixie: Ubuntu 24.04 と違い obs-studio / chromium が snap でなく deb で入る（コンテナ向き）
-FROM debian:trixie
+FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl \
     # X サーバー（dummy ドライバ = GPU 不要のソフトウェアレンダリング）
     xserver-xorg-core xserver-xorg-video-dummy x11-utils x11-xserver-utils xauth \
     # デスクトップ（XFCE、非コンポジットで CPU 軽量）
@@ -14,20 +14,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     x11vnc \
     # 音声（null-sink kai_speaker を提供。コンテナ内は PipeWire より PulseAudio が扱いやすい）
     pulseaudio pulseaudio-utils \
-    # 配信
+    # 配信（obs-studio は Ubuntu 24.04 universe の deb）
     obs-studio ffmpeg \
-    # ブラウザ（kai のブラウジング実演・PuruPuruPNGTuber 用）
-    chromium \
     # 日本語表示
     fonts-noto-cjk fonts-noto-color-emoji \
     # プロセス管理・ユーティリティ
-    supervisor curl jq procps \
+    supervisor jq procps \
     # デスクトップ操作（テキスト注入・将来のアバター=カーソル追従で使用）
     xdotool \
     && rm -rf /var/lib/apt/lists/*
 
-# kai ユーザー（uid 1000）。全 GUI プロセスはこのユーザーで動く
-RUN useradd -m -u 1000 -s /bin/bash kai
+# ブラウザ: Ubuntu の chromium/firefox は snap 配布でコンテナに入らないため、
+# Chromium エンジンの Brave（公式 apt リポジトリ、arm64 deb あり）を使う
+RUN curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
+      -o /usr/share/keyrings/brave-browser-archive-keyring.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main" \
+      > /etc/apt/sources.list.d/brave-browser-release.list \
+    && apt-get update && apt-get install -y --no-install-recommends brave-browser \
+    && rm -rf /var/lib/apt/lists/*
+
+# kai ユーザー（uid 1000。ubuntu:24.04 既定の ubuntu ユーザーを置き換える）
+RUN userdel -r ubuntu 2>/dev/null || true \
+    && useradd -m -u 1000 -s /bin/bash kai
 
 # Xorg dummy 設定（1920x1080）は VM 版と共通のものを使う
 COPY conf/10-dummy.conf /etc/X11/xorg.conf.d/10-dummy.conf

@@ -34,7 +34,7 @@ docker exec kai-streaming su kai -c "XDG_RUNTIME_DIR=/run/user/1000 sh -c 'ffmpe
 ## 3. OBS 初期設定（VNC 内で手動・初回のみ）
 
 1. XFCE のターミナルで `obs` を起動
-2. ソース: 「画面キャプチャ (XSHM)」→ Screen 0
+2. ソース: **「画面キャプチャ (XSHM)」**→ Screen 0（⚠️「ウィンドウキャプチャ (Xcomposite)」はヘッドレス X で黒くなる。使わない）
 3. 音声: 設定 → 音声 → デスクトップ音声 = `Monitor of kai_speaker`
 4. 配信: サービス = YouTube、**ストリームキーを設定**（キーは画面共有中・配信中に表示しない）
 5. 出力: x264 / veryfast / 1080p30 / 6000kbps
@@ -50,12 +50,13 @@ docker exec kai-streaming su kai -c "XDG_RUNTIME_DIR=/run/user/1000 sh -c 'ffmpe
 
 ## 5. トラブルシュート
 
-| 症状                 | 対処                                                                                         |
-| -------------------- | -------------------------------------------------------------------------------------------- |
-| コンテナが unhealthy | `docker compose logs` と `docker exec kai-streaming supervisorctl status` で失敗プロセス特定 |
-| 音が OBS に乗らない  | 検証 §2 の pactl / paplay で切り分け → OBS のデスクトップ音声デバイスを再選択                |
-| CPU が高い           | Docker Desktop → Resources で CPU 割当を増やす（M4 Pro は 12 コア）。OBS を 720p30 へ        |
-| VNC に繋がらない     | `docker compose ps` でポート公開確認。パスワードは `docker/.env`                             |
+| 症状                   | 対処                                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| コンテナが unhealthy   | `docker compose logs` と `docker exec kai-streaming supervisorctl status` で失敗プロセス特定              |
+| 音が OBS に乗らない    | 検証 §2 の pactl / paplay で切り分け → OBS のデスクトップ音声デバイスを再選択                             |
+| CPU が高い             | Docker Desktop → Resources で CPU 割当を増やす（M4 Pro は 12 コア）。OBS を 720p30 へ                     |
+| VNC に繋がらない       | `docker compose ps` でポート公開確認。パスワードは `docker/.env`                                          |
+| OBS のプレビューが黒い | ソースが「ウィンドウキャプチャ (Xcomposite)」になっていないか確認 → 「画面キャプチャ (XSHM)」に置き換える |
 
 ## 実機検証後のルール
 

@@ -48,7 +48,7 @@ kai の作業デスクトップ（配信映像の実体）と、それを YouTub
 
 ## 4. データモデル
 
-コンテナイメージ（`docker/Dockerfile`、Debian trixie ベース）+ 設定ファイル:
+コンテナイメージ（`docker/Dockerfile`、Ubuntu 24.04 ベース）+ 設定ファイル:
 
 - `conf/10-dummy.conf` — Xorg dummy ドライバで 1920x1080（VM 版と共通）
 - `docker/pulse-kai-speaker.pa` — null-sink `kai_speaker` の定義（`/etc/pulse/default.pa.d/`）
@@ -57,7 +57,7 @@ kai の作業デスクトップ（配信映像の実体）と、それを YouTub
 - `docker/.env` — `VNC_PASSWORD`（**コミットしない**。`.gitignore` 済み）
 - OBS プロファイル/シーン — GUI で作成し volume 内 `~/.config/obs-studio/` に永続化。**ストリームキーを含むためコンテナ外へ出さない**
 
-**ベースイメージの選定理由:** Ubuntu 24.04 は chromium / obs-studio が snap 配布でコンテナ内で扱えないため、deb で揃う **Debian trixie** を採用（arm64 対応）。
+**ベースイメージ:** **Ubuntu 24.04**（オーナー指定、2026-07-04）。obs-studio は universe の deb（30.0.2）。chromium / firefox は snap 配布でコンテナに入らないため、ブラウザは Chromium エンジンの **Brave**（公式 apt リポジトリ、arm64 deb）を採用。
 
 ## 5. 処理フロー
 
