@@ -33,6 +33,16 @@ RUN curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser-arch
     && apt-get update && apt-get install -y --no-install-recommends brave-browser \
     && rm -rf /var/lib/apt/lists/*
 
+# ブラウザ起動ラッパー: Docker の seccomp が Chromium サンドボックスの userns を塞ぐため
+# --no-sandbox で起動（コンテナ自体が隔離境界）。XFCE の「Web Browser」もこれを使う
+COPY docker/kai-browser /usr/local/bin/kai-browser
+COPY docker/brave-helper.desktop /usr/share/xfce4/helpers/brave.desktop
+RUN chmod +x /usr/local/bin/kai-browser \
+    && mkdir -p /etc/xdg/xfce4 \
+    && { grep -q "^WebBrowser=" /etc/xdg/xfce4/helpers.rc 2>/dev/null \
+         && sed -i "s/^WebBrowser=.*/WebBrowser=brave/" /etc/xdg/xfce4/helpers.rc \
+         || echo "WebBrowser=brave" >> /etc/xdg/xfce4/helpers.rc; }
+
 # kai ユーザー（uid 1000。ubuntu:24.04 既定の ubuntu ユーザーを置き換える）
 RUN userdel -r ubuntu 2>/dev/null || true \
     && useradd -m -u 1000 -s /bin/bash kai

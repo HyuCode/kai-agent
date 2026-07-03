@@ -1,0 +1,4 @@
+#!/bin/sh
+# コンテナ内では Docker の seccomp が Chromium サンドボックスの userns を塞ぐため
+# --no-sandbox で起動する（コンテナ自体が隔離境界。--test-type は警告バー抑制）
+exec /usr/bin/brave-browser --no-sandbox --test-type "$@"
