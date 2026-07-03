@@ -86,7 +86,8 @@ kai の作業デスクトップ（配信映像の実体）と、それを YouTub
 
 - **秘匿情報:** YouTube ストリームキー（OBS 設定内のみ）、VNC パスワード（`~/.vnc/passwd`）。いずれもリポジトリ・ログ・配信画面に出さない。OBS の「設定画面を開く操作」は配信中に行わない（キーが映るため）
 - **入力の信頼境界:** なし（外部入力を受けない）
-- **ネットワーク:** 公開ポートなし。VNC は Tailscale IP のみ bind、obs-websocket は 127.0.0.1 のみ。SSH も Tailscale 経由に限定（クラウド側 FW で 0.0.0.0/0 の 22 番を閉じる）
+- **ネットワーク:** 公開ポートなし。VNC は Tailscale IP のみ bind、obs-websocket は 127.0.0.1 のみ。SSH も Tailscale 経由に限定（クラウド側 FW で 0.0.0.0/0 の 22 番を閉じる。Tailscale 直接接続用に udp/41641 のみ開放）
+- **許容リスク（2026-07-04 実機確認）:** Ubuntu の x11vnc は `-listen <ip>` 指定でも `[::]:5900`（IPv6 ワイルドカード）を開く（`-no6` / `-noipv6` とも無効）。ホストにグローバル IPv6 アドレスがなく（リンクローカルのみ）、OCI Security List もデフォルト拒否のため外部から到達不能であり許容する。VM 内 iptables は Oracle イメージ標準の最終 REJECT ルールを持つが、Tailscale の `ts-input` チェーンが先頭にあり tailnet 経由の到達は機能する（Mac からの疎通確認済み）
 
 ## 9. テスト・検証
 

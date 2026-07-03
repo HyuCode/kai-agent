@@ -1,11 +1,14 @@
 # リモート GUI（Tailscale 内のみ）。setup.sh が @TAILSCALE_IP@ を実 IP に置換して配置する。
+# 既知の挙動: Ubuntu の x11vnc は -listen 指定でも [::]:5900 (IPv6) を開く（-no6/-noipv6 とも無効）。
+# ホストにグローバル IPv6 がなく OCI Security List もデフォルト拒否のため到達不能 = 許容リスク
+# （docs/kai/design/streaming.md §8 参照）。
 [Unit]
 Description=kai x11vnc on :0 (Tailscale only)
 After=kai-desktop.service
 Requires=kai-xorg.service
 
 [Service]
-ExecStart=/usr/bin/x11vnc -display :0 -listen @TAILSCALE_IP@ -no6 -rfbport 5900 -rfbauth %h/.vnc/passwd -forever -shared -noxdamage
+ExecStart=/usr/bin/x11vnc -display :0 -listen @TAILSCALE_IP@ -rfbport 5900 -rfbauth %h/.vnc/passwd -forever -shared -noxdamage
 Restart=on-failure
 RestartSec=2
 
