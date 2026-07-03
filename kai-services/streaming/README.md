@@ -59,6 +59,7 @@ Mac の VNC クライアント（Finder → 「サーバへ接続」→ `vnc://<
 | 症状                 | 対処                                                                                          |
 | -------------------- | --------------------------------------------------------------------------------------------- |
 | Xorg が起動しない    | `journalctl --user -u kai-xorg -e`。`/etc/X11/Xwrapper.config` を確認                         |
+| 再起動後に「Server is already active for display 0」ループ | lightdm が :0 を先取りしている。`sudo systemctl disable --now lightdm && sudo systemctl mask lightdm` → `sudo rm -f /tmp/.X0-lock` → user unit 再起動（setup.sh 済みなら発生しない） |
 | OBS（arm64）が不安定 | `fallback-ffmpeg.sh`（未作成。必要になったら設計 §10-3 に従い追加）で ffmpeg x11grab 直配信へ |
 | 音が OBS に乗らない  | `pactl list short sinks` で kai_speaker を確認 → OBS のデスクトップ音声デバイスを再選択       |
 | A1 の CPU が足りない | 720p30 へ。それでも不足なら GCP x86_64 へ移行（設計 §13-1）                                   |

@@ -18,6 +18,13 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
   fonts-noto-cjk fonts-noto-color-emoji \
   ffmpeg curl jq
 
+echo "==> 1b. display manager 無効化"
+# xfce4 が lightdm を依存で連れてくるが、:0 は kai-xorg（user unit）が所有する。
+# 放置すると再起動後に lightdm の Xorg が :0 を先取りして kai-xorg が起動ループする（M0 実機で確認）。
+sudo systemctl disable --now display-manager.service 2>/dev/null || true
+sudo systemctl disable --now lightdm.service 2>/dev/null || true
+sudo systemctl mask lightdm.service 2>/dev/null || true
+
 echo "==> 2/6 Xorg 設定（dummy ドライバ・非 root 起動許可）"
 sudo install -D -m 0644 conf/10-dummy.conf /etc/X11/xorg.conf.d/10-dummy.conf
 sudo tee /etc/X11/Xwrapper.config >/dev/null <<'EOF'
