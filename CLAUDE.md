@@ -12,6 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **機能開発** — `feature/*` ブランチ → PR → `main`。
 - **注意（命名の重なり）** — remote 名 `upstream` とブランチ名 `upstream` が同名。`git switch upstream` はブランチ、`upstream/main` は remote-tracking を指す。曖昧な操作では `origin upstream` / `upstream main` のように remote を明示する。
 - 旧 `kai/main` は廃止済み（今後は使わない）。
+- **CI** — kai のゲートは `kai CI`（`.github/workflows/kai-ci.yml`、`scripts/kai/verify.sh` を実行）のみ。upstream 由来のワークフロー（CI/Tests/Typecheck/Publish to PyPI/Docker/Deploy Site 等16個）は fork で `disabled_manually`（誤作動と kai push での失敗ノイズを防ぐため）。upstream 追従 merge の検証で一時的に必要なら `gh workflow enable <id>` で戻す。詳細は `docs/kai/loop-engineering.md` §6.1。
 
 ## 開発の鉄則（loop contract）★最優先
 
