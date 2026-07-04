@@ -52,7 +52,7 @@ def _collect_env_secrets() -> list[str]:
             continue
         if re.search(r"(KEY|TOKEN|SECRET|PASSWORD|PAT|CREDENTIAL)", k, re.IGNORECASE):
             vals.add(v)
-    return sorted(vals, key=len, reverse=True)
+    return sorted(vals, key=lambda s: len(s), reverse=True)
 
 
 _ENV_SECRETS = _collect_env_secrets()
@@ -127,7 +127,9 @@ class _Writer:
     def _drain(self) -> None:
         try:
             while not self._q.empty():
-                self._write(self._q.get_nowait())
+                ev = self._q.get_nowait()
+                if ev is not None:  # None は writer 停止用センチネル。書き込まない
+                    self._write(ev)
         except Exception:
             pass
 
