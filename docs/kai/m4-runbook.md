@@ -1,6 +1,11 @@
 # M4 運転台本 — 配信モードの手順書
 
-- **ステータス:** v0.1（リハーサルで検証し改訂する）
+- **ステータス:** v0.2（2026-07-05 第 1 回リハーサルの実地反映。§2 のコマンド誤り修正）
+- **第 1 回リハーサル記録（2026-07-05）:** 限定公開で 17 分実施しオーナー判断で中断
+  （課題が多いため）。配信自体は健全（ドロップ 0・切断なし）。幕 1〜2 は実施、
+  縮退実演・幕 4〜5 は未実施。課題は Issues #7（TTS 読み品質）/ #8（演出）/
+  #9（実況のパス整形）/ #10（無音対策）/ #11（ブラウザ操作）。
+  再リハーサルはこれらの解消後
 - **前提:** `docs/kai/mvp-plan.md` §M4。操作はすべてオーナーが手動実行（MVP）
 - **場所:** 特記なければ kai-vm 上（`ssh kai@<kai-vm>` または UTM ウィンドウ内ターミナル）
 
@@ -29,16 +34,17 @@
 ### 2.2 サービス疎通（すべて緑になるまで配信しない)
 
 ```bash
-# VM 内サービス
-systemctl --user is-active speechd.service kai-overlay.service
+# VM 内サービス（kai-overlay.service は廃止済み・inactive が正常。字幕は
+# OBS ブラウザソース → speechd の /overlay/ 経路）
+systemctl --user is-active speechd.service
 # 音声・字幕の end-to-end（VM のデフォルトシンク kai_speaker に乗り、字幕が出ること）
 curl -s -X POST http://127.0.0.1:8900/say -d '{"text":"はいしんまえチェックです"}'
 # Mac TTS
 curl -s -o /dev/null -w '%{http_code}\n' http://<mac-tts>:8890/health || echo "TTS 縮退運転になる"
 # 実況 LLM（sei-win）
 curl -s -o /dev/null -w '%{http_code}\n' http://<sei-win>:8080/v1/models
-# kai 本体（1 コマンド素振り。narrator の実況が音声+字幕で出ること）
-cd ~/kai-agent && .venv/bin/hermes "こんにちは。今日の配信の準備確認です。挨拶だけしてください"
+# kai 本体（1 コマンド素振り。narrator の実況が音声+字幕で出ること。-z 必須）
+cd ~/kai-agent && .venv/bin/hermes -z "こんにちは。今日の配信の準備確認です。挨拶だけしてください"
 ```
 
 - ディスク空き（`df -h ~`）と、OBS シーンにブラウザソース `kai-overlay-browser` が
