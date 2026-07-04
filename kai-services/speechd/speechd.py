@@ -51,6 +51,14 @@ PORT = int(_env("SPEECHD_PORT", "8900"))
 BIND = _env("SPEECHD_BIND", "127.0.0.1")
 TTS_URL = _env("TTS_URL", "http://100.106.136.117:8890")
 AUDIO_SINK = _env("AUDIO_SINK", "kai_speaker")
+# オーバーレイページ（GET /overlay/ で配信。将来の OBS ブラウザソース用）の実体
+OVERLAY_DIR = Path(_env("OVERLAY_DIR", str(Path(__file__).resolve().parent.parent / "overlay")))
+
+# 字幕ファイル（OBS の text-freetype2 ソースが「ファイルからの読み取り」で表示する。
+# 配信への字幕合成の正典。tmpfs 上に置いてディスク書き込みを避ける）
+_default_subtitle_file = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "kai-subtitle.txt")
+SUBTITLE_FILE = Path(_env("SUBTITLE_FILE", _default_subtitle_file))
 
 CONNECT_TIMEOUT = 3.0
 TOTAL_TIMEOUT = 30.0
@@ -209,8 +217,22 @@ def _sse_broadcast(event: dict) -> None:
             pass  # 配信失敗（クライアント側が詰まっている）で発話処理は止めない
 
 
+def _write_subtitle_file(text: str) -> None:
+    """字幕ファイルを原子的に更新する（OBS text ソースが読む。空文字でクリア）。"""
+    try:
+        tmp = SUBTITLE_FILE.with_suffix(".tmp")
+        tmp.write_text(text, encoding="utf-8")
+        tmp.replace(SUBTITLE_FILE)
+    except Exception as e:
+        print(f"[speechd] WARN subtitle file write failed: {e}")
+
+
 def _set_subtitle(text: str, source: str | None = None, emotion: str | None = None) -> None:
-    """字幕の表示/クリアを SSE イベントとして push し、現在状態を更新する。"""
+    """字幕の表示/クリアを字幕ファイル + SSE の両方へ反映し、現在状態を更新する。
+
+    配信への合成は OBS text ソース（字幕ファイル読み取り）が正典。SSE は
+    Web オーバーレイ（プレビュー・将来のアバター/コメント拡張）向けに維持する。
+    """
     event: dict[str, Any] = {"type": "subtitle", "text": text}
     if source:
         event["source"] = source
@@ -219,6 +241,7 @@ def _set_subtitle(text: str, source: str | None = None, emotion: str | None = No
     with _subtitle_lock:
         _current_subtitle.clear()
         _current_subtitle.update({k: v for k, v in event.items() if k != "type"})
+    _write_subtitle_file(text)
     try:
         _sse_broadcast(event)
     except Exception as e:
@@ -448,8 +471,46 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True})
         elif self.path == "/events":
             self._handle_sse()
+        elif self.path == "/overlay" or self.path.startswith("/overlay/"):
+            self._handle_overlay()
         else:
             self._send_json(404, {"error": "not found"})
+
+    def _handle_overlay(self) -> None:
+        """オーバーレイページの静的配信（OBS ブラウザソース用）。
+
+        kai-services/overlay/ の 3 ファイルを配信する。speechd と同一オリジンに
+        なるため、SSE（/events）へ相対パスで CORS なしに接続できる。
+        許可リスト方式（パストラバーサル防止）。
+        """
+        if self.path == "/overlay":
+            # 相対参照（app.js / style.css）を効かせるため末尾スラッシュへ寄せる
+            self.send_response(301)
+            self.send_header("Location", "/overlay/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        name = self.path[len("/overlay/"):] or "index.html"
+        allowed = {
+            "index.html": "text/html; charset=utf-8",
+            "app.js": "text/javascript; charset=utf-8",
+            "style.css": "text/css; charset=utf-8",
+        }
+        if name not in allowed:
+            self._send_json(404, {"error": "not found"})
+            return
+        path = OVERLAY_DIR / name
+        try:
+            body = path.read_bytes()
+        except OSError:
+            self._send_json(404, {"error": f"overlay file missing: {name}"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", allowed[name])
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _handle_sse(self) -> None:
         """`GET /events`: SSE 購読。接続を握ったまま、字幕イベントを push し続ける。
@@ -539,6 +600,7 @@ class _Server(ThreadingHTTPServer):
 
 
 def main() -> None:
+    _write_subtitle_file("")  # 前回の残留字幕をクリア
     threading.Thread(target=_worker_loop, name="speechd-worker", daemon=True).start()
     server = _Server((BIND, PORT), _Handler)
     print(f"[speechd] listening on {BIND}:{PORT} (TTS_URL={TTS_URL}, AUDIO_SINK={AUDIO_SINK})")

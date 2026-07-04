@@ -9,9 +9,11 @@ producer（kai の応答 / narrator の実況 / 後日 youtube_live のチャッ
 `kai_speaker`）へ `paplay` で同期再生しつつ、`GET /events`（SSE）で購読中の
 Web オーバーレイ（`kai-services/overlay/`）へ字幕の表示・クリアを push する。
 
-字幕は当初 OBS が読むファイル方式だったが、将来アバター・コメント・進捗も
-同じオーバーレイで表現できるよう SSE 配信に変更した（OBS ソースを増やさない
-方針）。音声・キュー・縮退・マスク・トレースのロジックは変更していない。
+字幕の**映像合成の正典は字幕ファイル方式**（speechd が `SUBTITLE_FILE` へ原子的に
+書き、OBS の text ソースが読んで配信映像に合成する）。SSE（`/events`）と
+Web オーバーレイ（`/overlay/` で配信）は補助（プレビュー・将来のアバター/
+コメント拡張用）。方式の変遷（ファイル → SSE オーバーレイ → ファイル + SSE 併用）の
+経緯は `docs/kai/design/00-system.md` §4 冒頭を参照。
 
 設計の正典: `docs/kai/design/00-system.md` §3(ADR-3) / §4「発話・字幕同期メカニズム」/
 §5.1（共通トレースエンベロープ）/ §5.3（秘匿）。本 README は運用手順のみを記す。
@@ -34,13 +36,21 @@ systemd --user サービスとして常駐させる場合は後述の `install.s
 
 ## 環境変数
 
-| 変数           | デフォルト                    | 意味                                                   |
-| -------------- | ----------------------------- | ------------------------------------------------------ |
-| `SPEECHD_PORT` | `8900`                        | HTTP サーバーの listen ポート（`/say` `/events` 共通） |
-| `SPEECHD_BIND` | `127.0.0.1`                   | HTTP サーバーの bind アドレス                          |
-| `TTS_URL`      | `http://100.106.136.117:8890` | Mac TTS サーバー（`aquestalk-server`）のベース URL     |
-| `AUDIO_SINK`   | `kai_speaker`                 | `paplay --device` に渡す PipeWire sink 名              |
-| `HERMES_HOME`  | （未設定なら `~/.hermes`）    | トレース JSONL の出力先ルート（後述）                  |
+| 変数            | デフォルト                          | 意味                                                                     |
+| --------------- | ----------------------------------- | ------------------------------------------------------------------------ |
+| `SPEECHD_PORT`  | `8900`                              | HTTP サーバーの listen ポート（`/say` `/events` `/overlay/` 共通）       |
+| `SPEECHD_BIND`  | `127.0.0.1`                         | HTTP サーバーの bind アドレス                                            |
+| `TTS_URL`       | `http://100.106.136.117:8890`       | Mac TTS サーバー（`aquestalk-server`）のベース URL                       |
+| `AUDIO_SINK`    | `kai_speaker`                       | `paplay --device` に渡す PipeWire sink 名                                |
+| `SUBTITLE_FILE` | `$XDG_RUNTIME_DIR/kai-subtitle.txt` | 字幕ファイル（**映像合成の正典**。OBS の text ソースがこれを読んで表示） |
+| `OVERLAY_DIR`   | `../overlay`（リポジトリ内の相対）  | `/overlay/` で配信する Web オーバーレイの実体ディレクトリ                |
+| `HERMES_HOME`   | （未設定なら `~/.hermes`）          | トレース JSONL の出力先ルート（後述）                                    |
+
+**字幕の映像合成（2026-07-05 方式変更）:** 字幕は `SUBTITLE_FILE` への原子的書き込みが正典で、
+OBS 側の text-freetype2 ソース（「ファイルからの読み取り」）が配信映像に合成する。
+SSE（`/events`）と Web オーバーレイ（`/overlay/`）は補助（プレビュー・将来拡張）。
+デスクトップへの直接描画（旧 kai-overlay.service）はクリック阻害の懸念で廃止した。
+経緯は `docs/kai/design/00-system.md` §4 冒頭の実装確定ノートを参照。
 
 `HERMES_HOME` は hermes 本体（`hermes_constants.get_hermes_home()`）と同じ規約。
 speechd はこのモジュールを import できればそれを使い、できなければ（別 venv・別

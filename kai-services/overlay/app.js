@@ -8,10 +8,14 @@
 (() => {
   "use strict";
 
-  // SSE エンドポイントは既定で speechd のローカルポートを見る。
+  // SSE エンドポイントの既定:
+  //   - speechd から配信されている場合（http(s)://…/overlay/）→ 同一オリジンの /events
+  //   - file:// で直接開いた場合 → speechd のローカルポート
   // `?sse=http://host:port/events` クエリで上書き可能（別ホストの speechd を
   // 見に行きたい場合や、手元での動作確認に使う）。
-  const DEFAULT_SSE_URL = "http://127.0.0.1:8900/events";
+  const DEFAULT_SSE_URL = window.location.protocol.startsWith("http")
+    ? new URL("/events", window.location.origin).toString()
+    : "http://127.0.0.1:8900/events";
   const params = new URLSearchParams(window.location.search);
   const SSE_URL = params.get("sse") || DEFAULT_SSE_URL;
 

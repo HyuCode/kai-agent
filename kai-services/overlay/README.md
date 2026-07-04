@@ -1,5 +1,15 @@
 # kai-overlay
 
+> **ステータス: 休止（2026-07-05）。** 字幕の映像合成の正典は **OBS text ソース
+> （speechd の字幕ファイル読み取り）** に変更された。デスクトップ直描画
+> （`kai-overlay.service` の WebKitGTK 窓）は、字幕表示中に他ウィンドウの
+> クリックが阻害される場合があるため廃止（サービス無効化済み）。本命の
+> **OBS ブラウザソースは arm64 では現状使えない**（apt 版は dfsg で CEF 除去、
+> Flathub に aarch64 OBS がない。Xcomposite 窓キャプチャも OBS が SEGV し不成立）。
+> この Web ページ自体は speechd の `GET /overlay/` で配信されており、ローカル
+> プレビューや、将来 obs-browser を自前ビルドした際のアバター/コメント集約先
+> として維持する。経緯: `docs/kai/design/00-system.md` §4。
+
 kai の配信画面に重ねる Web オーバーレイ。字幕を表示する（将来的にはアバターや
 コメント表示なども同じオーバーレイに追加していく想定の土台）。
 
