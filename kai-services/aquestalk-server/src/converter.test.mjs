@@ -45,6 +45,32 @@ test("toKoe: 空文字は空文字を返す", async () => {
   assert.equal(await toKoe(""), "");
 });
 
+test("formatKoe: づ・ぢを AquesTalk10 が解釈できる ず・じ に正規化する", () => {
+  // AquesTalk10 の音声記号列では づ・ぢ が未定義で合成失敗する（実機確認済み）
+  assert.equal(formatKoe("ヒヅケ"), "ひずけ。");
+  assert.equal(formatKoe("チヂミ"), "ちじみ。");
+});
+
+test("formatKoe: ハイフン類は読点（短ポーズ）に正規化する", () => {
+  // 素通しすると合成失敗する（実機確認済み）
+  assert.equal(formatKoe("テスト-テスト"), "てすと、てすと。");
+  assert.equal(formatKoe("テスト–テスト"), "てすと、てすと。");
+});
+
+test("formatKoe: 読めずに残った漢字・ASCII 残渣は除去して発話を継続する", () => {
+  // 許可リスト方式の最終サニタイズ。文まるごと合成失敗より一部欠落を取る
+  assert.equal(formatKoe("漢テスト"), "てすと。");
+  assert.equal(formatKoe("テストabc"), "てすと。");
+});
+
+test("toKoe: 英単語と数字はタグとして保持される（除去しない）", async () => {
+  const koe = await toKoe("uname -a を 7 秒で実行");
+  assert.match(koe, /<ALPHA VAL=UNAME>/);
+  assert.match(koe, /<ALPHA VAL=A>/);
+  assert.match(koe, /<NUMK VAL=7>/);
+  assert.doesNotMatch(koe, /-/); // ハイフンは読点化され残らない
+});
+
 test("splitSentences: 句点・感嘆符・疑問符・改行で分割する", () => {
   const sentences = splitSentences("こんにちは。元気ですか？さようなら！\nまた明日。");
   assert.deepEqual(sentences, ["こんにちは。", "元気ですか？", "さようなら！", "また明日。"]);

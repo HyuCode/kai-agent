@@ -37,17 +37,26 @@ function normalizeAquestalkKoePunctuation(koe) {
 
 /**
  * AquesTalk CLI に渡すと危険・不要な文字（制御文字・引用符・Markdown 記号等）を除去する。
- * NUMK/ALPHA タグは preprocessSymbols() の意図に反して素通しされると CLI が誤解釈するため除去する。
+ *
+ * NUMK/ALPHA タグは AquesTalk10 ネイティブのタグ記法で、CLI もそのまま解釈できる
+ * （execFile の直接引数渡しなのでシェル解釈の危険もない — 実機確認済み）。
+ * 以前はここでタグごと除去していたため数字・英語が無音で消えていた。
+ * 正規タグをプレースホルダに退避してから危険文字を除去し、最後に復元する。
  */
 function stripAquestalkCliDangerousChars(koe) {
-  return koe
-    .replace(/<(?:ALPHA|NUMK) VAL=[^>]+>/gi, "")
-    .replace(/<[^>]*$/g, "")
+  const tags = [];
+  let s = koe.replace(/<(?:ALPHA|NUMK) VAL=[^>]+>/gi, (m) => {
+    tags.push(m);
+    return `${tags.length - 1}`; // 私用領域文字で退避（後続の除去に耐える）
+  });
+  s = s
+    .replace(/<[^>]*$/g, "") // 末尾で切れた不完全タグの残骸
     .replace(/```+/g, "")
     .replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F-\x9F]/g, "")
     .replace(/[{}[\]()"'“”‘’「」『』]/g, "")
     .replace(/[`*_~|\\<>]/g, "")
     .replace(/[ 　\t\r\n]+/g, "");
+  return s.replace(/(\d+)/g, (_, i) => tags[Number(i)] ?? "");
 }
 
 function sanitizeAquestalkCliKoe(koe) {

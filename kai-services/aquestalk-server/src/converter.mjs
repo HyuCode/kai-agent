@@ -319,6 +319,9 @@ function convertKanaText(text) {
     String.fromCharCode(ch.charCodeAt(0) - 0x60),
   );
 
+  // AquesTalk10 が解釈できない仮名の正規化（づ・ぢは音声記号列で未定義 — 実機確認済み）
+  result = result.replace(/づ/g, "ず").replace(/ぢ/g, "じ");
+
   // 全角・半角括弧とその内容を除去（AquesTalk10非対応文字）
   result = result
     .replace(/[（(][^（()）)]*[）)]/g, "")
@@ -330,10 +333,17 @@ function convertKanaText(text) {
     .replace(/[？?]/g, "？") // 疑問符 → 疑問文末（音上昇）
     .replace(/[、，,]/g, "、") // 読点系 → 短めポーズ
     .replace(/[。．.]/g, "。") // 句点系 → 長めポーズ
-    .replace(/[・：:]/g, ";"); // 中点・コロン → ポーズなし区切り
+    .replace(/[・：:]/g, ";") // 中点・コロン → ポーズなし区切り
+    .replace(/[-‐‑–—−]/g, "、"); // ハイフン類 → 短めポーズ（素通しすると合成失敗 — 実機確認済み）
 
   // スペース（全角・半角）を除去
   result = result.replace(/[\s　]+/g, "");
+
+  // 最終サニタイズ（許可リスト方式）: AquesTalk10 音声記号列として有効な
+  // ひらがな・長音符・句切記号以外（kuromoji が読めず残った漢字・ASCII 残渣等）を
+  // 除去する。残すとその文がまるごと合成失敗して字幕のみ縮退になるため、
+  // 一部欠落しても発話を継続できる方を取る。
+  result = result.replace(/[^ぁ-ゖー。？、;/]/g, "");
 
   return result;
 }
