@@ -1,0 +1,8 @@
+name: kai_narrator
+version: 0.1.0
+description: "kai 実況（F-7）。最終応答はそのまま、ツール実行は auxiliary LLM で一言実況に変換して speechd へ送る。"
+author: kai
+hooks:
+  - post_tool_call
+  - post_llm_call
+  - on_session_start
