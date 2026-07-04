@@ -1,0 +1,12 @@
+name: kai_trace
+version: 0.1.0
+description: "kai 全事象ロギング（F-22）。lifecycle hook を相関 ID つき JSONL に永続化する。"
+author: kai
+hooks:
+  - post_tool_call
+  - post_api_request
+  - post_llm_call
+  - on_session_start
+  - on_session_end
+  - subagent_start
+  - subagent_stop
