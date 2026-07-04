@@ -7,7 +7,8 @@
 #   broadcast.sh stream-start  # 配信開始（YouTube へ出る。明示コマンドに分離）
 #   broadcast.sh stream-stop   # 配信停止（OBS は起動したまま）
 #   broadcast.sh stop          # 配信停止（必要なら）→ OBS をクリーン終了
-#   broadcast.sh status        # OBS プロセス・配信・録画の状態
+#   broadcast.sh status        # OBS プロセス・配信・録画の状態（人間可読サマリ）
+#   broadcast.sh status --json # obs-websocket の生 JSON（調査用）
 #   broadcast.sh record-start | record-stop   # 録画（配信に出さない検証用）
 #
 # 運用上の注意:
@@ -25,15 +26,33 @@ OBS_UNIT="kai-obs"
 WS_WAIT_SEC="${WS_WAIT_SEC:-40}"   # OBS 起動から websocket 応答までの待ち上限
 STOP_WAIT_SEC="${STOP_WAIT_SEC:-30}"
 
+pick_obsws_python() {
+  if [[ -n "${OBSWS_PYTHON:-}" ]]; then
+    printf '%s\n' "${OBSWS_PYTHON}"
+    return 0
+  fi
+  if python3 -c 'import websocket' >/dev/null 2>&1; then
+    printf '%s\n' "python3"
+    return 0
+  fi
+  if [[ -x /usr/bin/python3 ]] && /usr/bin/python3 -c 'import websocket' >/dev/null 2>&1; then
+    printf '%s\n' "/usr/bin/python3"
+    return 0
+  fi
+  printf '%s\n' "python3"
+}
+
+OBSWS_PYTHON="$(pick_obsws_python)"
+
 obs_running() { pgrep -x obs >/dev/null; }
 
 # OBS メインウィンドウの ID（WM_CLASS が obs のもの）を返す。無ければ空。
 obs_window() { wmctrl -lx 2>/dev/null | awk '$3 ~ /^obs\./ {print $1; exit}'; }
 
-ws_ok() { python3 "${OBSWS}" GetVersion >/dev/null 2>&1; }
+ws_ok() { "${OBSWS_PYTHON}" "${OBSWS}" GetVersion >/dev/null 2>&1; }
 
 streaming_active() {
-  python3 "${OBSWS}" GetStreamStatus 2>/dev/null \
+  "${OBSWS_PYTHON}" "${OBSWS}" GetStreamStatus 2>/dev/null \
     | python3 -c 'import json,sys; d=json.loads(sys.stdin.readline()); sys.exit(0 if d["responseData"]["outputActive"] else 1)'
 }
 
@@ -61,14 +80,14 @@ cmd_start() {
 }
 
 cmd_stream_start() {
-  python3 "${OBSWS}" StartStream
+  "${OBSWS_PYTHON}" "${OBSWS}" StartStream
   echo "✅ 配信開始を要求しました。実際の出力状態:"
   sleep 2
-  python3 "${OBSWS}" GetStreamStatus
+  "${OBSWS_PYTHON}" "${OBSWS}" GetStreamStatus
 }
 
 cmd_stream_stop() {
-  python3 "${OBSWS}" StopStream
+  "${OBSWS_PYTHON}" "${OBSWS}" StopStream
   echo "✅ 配信停止を要求しました。"
 }
 
@@ -79,7 +98,7 @@ cmd_stop() {
   fi
   if streaming_active; then
     echo "配信中のため先に停止します..."
-    python3 "${OBSWS}" StopStream
+    "${OBSWS_PYTHON}" "${OBSWS}" StopStream
     sleep 3
   fi
   local win
@@ -104,8 +123,96 @@ cmd_stop() {
 cmd_status() {
   if obs_running; then
     echo "OBS: 起動中 (pid $(pgrep -x obs | head -1))"
-    python3 "${OBSWS}" GetStreamStatus || true
-    python3 "${OBSWS}" GetRecordStatus || true
+  else
+    echo "OBS: 停止"
+    return 0
+  fi
+
+  local stream_json stream_rc record_json record_rc
+  stream_rc=0
+  record_rc=0
+  stream_json="$("${OBSWS_PYTHON}" "${OBSWS}" GetStreamStatus 2>&1)" || stream_rc=$?
+  record_json="$("${OBSWS_PYTHON}" "${OBSWS}" GetRecordStatus 2>&1)" || record_rc=$?
+
+  python3 - "${stream_rc}" "${stream_json}" "${record_rc}" "${record_json}" <<'PY'
+import json
+import sys
+
+
+def parse_payload(raw):
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        return json.loads(line).get("responseData") or {}
+    return {}
+
+
+def duration(data):
+    timecode = str(data.get("outputTimecode") or "").strip()
+    if timecode:
+        return timecode.split(".", 1)[0]
+    millis = data.get("outputDuration")
+    if isinstance(millis, (int, float)) and millis >= 0:
+        seconds = int(millis // 1000)
+        hours, seconds = divmod(seconds, 3600)
+        minutes, seconds = divmod(seconds, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return "--:--:--"
+
+
+def bytes_mb(value):
+    if not isinstance(value, (int, float)):
+        return None
+    return value / 1024 / 1024
+
+
+def error_summary(raw):
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    if not lines:
+        return "詳細なし"
+    return lines[-1]
+
+
+stream_rc = int(sys.argv[1])
+stream_raw = sys.argv[2]
+record_rc = int(sys.argv[3])
+record_raw = sys.argv[4]
+
+if stream_rc == 0:
+    stream = parse_payload(stream_raw)
+    if stream.get("outputActive"):
+        parts = [f"配信中 {duration(stream)}"]
+        mb = bytes_mb(stream.get("outputBytes"))
+        if mb is not None:
+            parts.append(f"出力 {mb:.1f} MB")
+        skipped = stream.get("outputSkippedFrames")
+        if isinstance(skipped, int):
+            parts.append(f"スキップ {skipped} frames")
+        reconnecting = stream.get("outputReconnecting")
+        warning = " ⚠️ 再接続中" if reconnecting else ""
+        print(f"配信: {' / '.join(parts)}{warning}")
+    else:
+        print("配信: 停止")
+else:
+    print(f"配信: 状態取得失敗（{error_summary(stream_raw)}）")
+
+if record_rc == 0:
+    record = parse_payload(record_raw)
+    if record.get("outputActive"):
+        print(f"録画: 録画中 {duration(record)}")
+    else:
+        print("録画: 停止")
+else:
+    print(f"録画: 状態取得失敗（{error_summary(record_raw)}）")
+PY
+}
+
+cmd_status_json() {
+  if obs_running; then
+    echo "OBS: 起動中 (pid $(pgrep -x obs | head -1))"
+    "${OBSWS_PYTHON}" "${OBSWS}" GetStreamStatus || true
+    "${OBSWS_PYTHON}" "${OBSWS}" GetRecordStatus || true
   else
     echo "OBS: 停止"
   fi
@@ -116,9 +223,19 @@ case "${1:-}" in
   stream-start) cmd_stream_start ;;
   stream-stop)  cmd_stream_stop ;;
   stop)         cmd_stop ;;
-  status)       cmd_status ;;
-  record-start) python3 "${OBSWS}" StartRecord ;;
-  record-stop)  python3 "${OBSWS}" StopRecord ;;
+  status)
+    case "${2:-}" in
+      "")     cmd_status ;;
+      --json) cmd_status_json ;;
+      *)
+        echo "不明な status オプションです: ${2}" >&2
+        echo "使い方: broadcast.sh status [--json]" >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  record-start) "${OBSWS_PYTHON}" "${OBSWS}" StartRecord ;;
+  record-stop)  "${OBSWS_PYTHON}" "${OBSWS}" StopRecord ;;
   *)
     sed -n '2,16p' "${BASH_SOURCE[0]}"
     exit 2
