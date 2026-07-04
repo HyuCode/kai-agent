@@ -1,0 +1,66 @@
+# kai 専用の検証 CI（Loop Engineering L2 / FR-L1）。
+# kai 所有パスの変更に対し scripts/kai/verify.sh を回し、main への push と PR を
+# ゲートする。upstream の ci.yml は改変しない（fork 追従。別ファイルで完結させる）。
+#
+# 唯一の入口は scripts/kai/verify.sh。ローカルと CI で同じ検証器を回し「ローカル
+# 緑・CI 赤」の乖離を無くす（NFR-2）。エージェントは verify.sh の緑だけを完了根拠にする。
+name: kai CI
+
+on:
+  push:
+    branches: [main]
+    paths: &kai_paths
+      - "plugins/kai_*/**"
+      - "kai-services/**"
+      - "docs/kai/**"
+      - ".claude/**"
+      - "scripts/kai/**"
+      - "scripts/kai-docs-lint.sh"
+      - "CLAUDE.md"
+      - "tests/plugins/test_kai_*.py"
+      - ".github/workflows/kai-ci.yml"
+  pull_request:
+    paths: *kai_paths
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kai-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: kai verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      # kai の検証器は .venv に入れる（verify.sh が .venv/bin を PATH 先頭に足す）。
+      # フル hermes パッケージは不要で、pytest/ruff/ty だけで kai テストは通る。
+      - name: Create venv with kai verifiers
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install pytest==9.0.2 ruff==0.15.10 ty==0.0.21
+
+      # node --test（aquestalk-server の converter テスト）は kuromoji に依存する。
+      - name: Install aquestalk-server deps
+        run: npm ci
+        working-directory: kai-services/aquestalk-server
+
+      - name: kai verify (scripts/kai/verify.sh)
+        run: bash scripts/kai/verify.sh
