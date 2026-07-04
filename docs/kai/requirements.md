@@ -24,7 +24,7 @@ kai は、**YouTube でライブ配信をしながらライブコーディング
 
 ### 1.3 実行環境
 
-- **常駐先（2026-07-04 決定）:** オーナーの **Mac（Apple M4 Pro / 12 コア / 24GB）上の Docker コンテナ（Linux デスクトップ）**。24 時間稼働を前提とする（Mac のスリープ無効化が運用条件）。
+- **常駐先（2026-07-04 確定）:** オーナーの **Mac（Apple M4 Pro / 12 コア / 24GB）上の UTM 仮想マシン `kai-vm`（Ubuntu 24.04 Desktop arm64、6CPU/12GB）**。本物の Ubuntu GNOME デスクトップを配信画面とする。24 時間稼働を前提とする（Mac のスリープ無効化が運用条件）。変遷: GCP → Oracle A1（PoC 済・停止中）→ Mac Docker（GNOME 不可で断念）→ UTM VM。
   - 当初案の GCP → Oracle Cloud A1（ARM VM）は、CPU/GPU 性能の懸念により**保留**（A1 インスタンスは停止済み・セットアップ資産は温存。Mac 運用に支障が出た場合の復帰オプション）。
 - **利用可能な LLM:**
   - OpenAI（Codex）
@@ -54,7 +54,7 @@ kai は、**YouTube でライブ配信をしながらライブコーディング
 - YouTube ライブ配信・ライブチャット連携
 - 音声（TTS）・字幕・アバター等の配信演出
 - X 運用、Discord 連携（オーナー通知・運用連絡）
-- Linux（Mac 上の Docker コンテナ）での画面制御・配信スタック
+- Linux（Mac 上の UTM VM）での画面制御・配信スタック
 - upstream hermes-agent の定期的な変更取り込み（fork 運用）
 
 ### 2.2 対象外・後回し（Out of Scope / Later）

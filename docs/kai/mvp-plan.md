@@ -37,13 +37,13 @@
 ```text
 ┌── オーナーの Mac（M4 Pro / 12コア / 24GB、スリープ無効運用）────────┐
 │                                                                      │
-│  Docker コンテナ kai-streaming（Debian trixie / arm64）               │
-│  │  永続 X デスクトップ（Xorg dummy, 1920x1080, DISPLAY=:0, XFCE）    │
-│  │  ├─ kai（hermes fork, kai/main）… terminal/browser で作業         │
-│  │  ├─ OBS … :0 をキャプチャ → RTMP → YouTube                        │
-│  │  │    └─ 字幕テキストソース（narrator が更新）                    │
-│  │  ├─ 音声: PulseAudio null-sink kai_speaker（TTS WAV → OBS 取込）  │
-│  │  └─ x11vnc（Mac の 127.0.0.1:5901 にのみ publish）                │
+│  UTM VM「kai-vm」（Ubuntu 24.04 Desktop arm64 / 6CPU / 12GB）         │
+│  │  本物の Ubuntu GNOME デスクトップ（X11・自動ログイン・1920x1080）  │
+│  │  ├─ kai（hermes fork, kai/main）… M1 でここに導入予定             │
+│  │  ├─ OBS … 画面キャプチャ(XSHM) → RTMPS → YouTube                  │
+│  │  ├─ 音声: PipeWire null-sink kai_speaker（デフォルトシンク）      │
+│  │  └─ Chromium（snap・本物）                                        │
+│  │  リモート操作: Tailscale SSH / xdotool / UTM ウィンドウ            │
 │  │                                                                   │
 │  Mac ネイティブ:                                                      │
 │  └─ AquesTalk10 合成サービス（aquestalk_cli + 小型 HTTP ラッパ）      │
@@ -53,7 +53,7 @@
          自宅 Windows: ローカル LLM（OpenAI 互換）
 ```
 
-（旧構成 = Oracle A1 VM は 2026-07-04 に保留へ。M0 で PoC 済み・資産は `kai-services/streaming/{setup.sh,units/,oracle/}` に温存、A1 は停止中）
+（変遷: Oracle A1 → Mac Docker → **Mac UTM VM**（2026-07-04 確定）。「本物の GNOME」要望により VM 化。旧資産は温存: OCI 用 `setup.sh`/`units/`/`oracle/`、Docker 用 `docker/`）
 
 kai 固有コードの配置は fork 運用原則に従う（コア無改変）:
 
@@ -68,18 +68,16 @@ kai 固有コードの配置は fork 運用原則に従う（コア無改変）:
 
 各マイルストーンは「検証（runtime acceptance）」を満たして完了とする（プロトタイプの品質文化を踏襲）。
 
-### M0: インフラ PoC — Mac Docker + 配信経路の技術検証
+### M0: インフラ PoC — Mac UTM VM + 配信経路の技術検証
 
-**目的:** 配信スタック（コンテナ内デスクトップ + OBS + RTMP）の成立を検証する。
+**目的:** 配信スタック（Ubuntu デスクトップ + OBS + RTMP）の成立を検証する。
 
-- `kai-services/streaming/docker/` の compose でコンテナを構築（Xorg dummy + XFCE + PulseAudio null-sink + x11vnc + OBS + Chromium。Debian trixie ベース）
-- VNC（`vnc://127.0.0.1:5901`）でデスクトップ確認、OBS 初期設定（画面キャプチャ + kai_speaker monitor + ストリームキー + obs-websocket）
-- YouTube 側: ライブ配信有効化（**初回は有効化後 24 時間待ち**）、常設ストリームキー取得
-- **テスト配信**（限定公開）: デスクトップ + テスト音声が YouTube で視聴できること
+- UTM VM（Ubuntu 24.04 Desktop arm64）を作成し `kai-services/streaming/vm/setup.sh` を適用
+- OBS（XSHM 画面キャプチャ + kai_speaker）でテスト配信（限定公開・30 分）を安定完走
+- 詳細な構成・既知の問題（GPU アクセラレーション不可等）は `docs/kai/design/streaming.md` v0.3
 
-**検証:** 限定公開で 30 分配信し、1080p30 で映像・音声が安定していること。CPU 使用率（docker stats / Activity Monitor）とドロップフレーム率を記録。詳細は `docs/kai/design/streaming.md` §9。
-
-**経緯:** 当初 Oracle A1（ARM VM）で PoC を実施し、デスクトップ・音声・VNC・再起動復帰まで検証済み（lightdm 競合等の知見はスクリプトに反映済み）。CPU/GPU 性能懸念で 2026-07-04 に Mac Docker へ方針転換。VM 版資産は温存。
+**検証結果（2026-07-04）:** VM 上で GNOME/X11/自動ログイン/1920x1080/kai_speaker/OBS(llvmpipe) すべて動作。
+配信開始成功（2512kbps / 30fps / ドロップ 0%）。xdotool によるリモート UI 操作も実証済み。
 
 ### M1: kai 本体のデプロイと LLM 接続
 
@@ -150,7 +148,7 @@ kai 固有コードの配置は fork 運用原則に従う（コア無改変）:
 
 | マイルストーン  | 主な作業場所      | 目安    |
 | --------------- | ----------------- | ------- |
-| M0 インフラ PoC | Oracle / Linux    | 1〜2 日 |
+| M0 インフラ PoC | Mac / UTM VM      | 済み    |
 | M1 kai デプロイ | サーバー + config | 1 日    |
 | M2 音声・字幕   | Mac + サーバー    | 1〜2 日 |
 | M3 narrator     | hermes plugin     | 2〜3 日 |

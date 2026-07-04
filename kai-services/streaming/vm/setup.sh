@@ -56,6 +56,20 @@ open(p, "w").write(buf.getvalue())
 print("gdm3/custom.conf updated")
 PYEOF
 
+echo "==> 5b. 解像度 1920x1080 の自動適用 + デフォルトシンク = kai_speaker"
+mkdir -p "$HOME/.config/autostart"
+cat > "$HOME/.config/autostart/kai-resolution.desktop" <<'EOF2'
+[Desktop Entry]
+Type=Application
+Name=kai fixed resolution
+Exec=sh -c "sleep 3; xrandr --output Virtual-1 --mode 1920x1080"
+X-GNOME-Autostart-enabled=true
+EOF2
+XDG_RUNTIME_DIR=/run/user/$(id -u) pactl set-default-sink kai_speaker 2>/dev/null || true
+
+echo "==> 5c. UTM 連携（クリップボード共有・ゲストエージェント）と診断ツール"
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y spice-vdagent qemu-guest-agent mesa-utils
+
 echo "==> 6/7 GNOME: 画面ロック・アイドル・サスペンドの無効化（配信事故防止）"
 gsettings set org.gnome.desktop.session idle-delay 0 || true
 gsettings set org.gnome.desktop.screensaver lock-enabled false || true
