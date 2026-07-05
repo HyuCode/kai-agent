@@ -15,10 +15,20 @@
 （speechd 側でもマスクされるため三層防御）。マスク実装は kai_trace / speechd と
 同方針だが、plugin 単体で完結させる（ディレクトリ間 import はしない）。
 
+無音対策（Issue #10 / ハートビート実況）: post_tool_call はツール完了時にしか
+発火しないため、長時間コマンドの実行中（CI 待ち・ビルド等）や LLM の思考中は
+イベントが無く実況が止まる（リハーサルで 316 秒の無音を実測）。そこで
+pre_tool_call / pre_llm_call で「いま何が走っているか」を記録し、最後の発話から
+heartbeat_interval_s 経過したら現在状況を一言実況する。実行中ツールがあれば
+それを材料に auxiliary LLM で生成（失敗時は定型文）、LLM 思考中は定型文を
+ローテーションで発話する。
+
 設定（config.yaml）:
   plugins.entries.kai_narrator.speechd_url          speechd のベース URL（既定 http://127.0.0.1:8900）
   plugins.entries.kai_narrator.narration_interval_s 実況の最短間隔秒（既定 12）
   plugins.entries.kai_narrator.narration_enabled    ツール実況の有効化（既定 true。false でも応答発話は行う）
+  plugins.entries.kai_narrator.heartbeat_enabled    無音時のハートビート実況（既定 true。narration_enabled が前提）
+  plugins.entries.kai_narrator.heartbeat_interval_s 最後の発話からハートビートまでの秒数（既定 45）
   plugins.entries.kai_narrator.max_speech_chars     応答発話の最大文字数（既定 280）
   auxiliary.narration.*                              実況 LLM の割当（provider/model/base_url/timeout）
 """
@@ -188,6 +198,17 @@ _NARRATION_SYSTEM_PROMPT = (
 )
 
 
+# LLM 思考中（実行中ツールなし）のハートビート定型文。dedup（直前と同文は
+# speechd/narrator 双方で抑制される）を避けるためローテーションする。
+# ログに基づかない内容を作らない原則（ADR-1）に沿い、事実として常に正しい
+# 「考え中」表現だけを使う。
+_HEARTBEAT_IDLE_LINES = (
+    "いま考えを整理してるところ。ちょっと待っててね",
+    "うーん、次の一手を考え中だよ",
+    "まだ考え中。もうすこしだけ待ってね",
+)
+
+
 def _generate_narration(events: list[dict]) -> str:
     """イベント列を auxiliary LLM（task=narration）で一言実況に変換する。"""
     lines = [f"- {_digest_event(ev)}" for ev in events]
@@ -241,6 +262,8 @@ class _Narrator:
         self.speechd_url: str = str(cfg.get("speechd_url") or "http://127.0.0.1:8900")
         self.narration_interval_s: float = float(cfg.get("narration_interval_s") or 12)
         self.narration_enabled: bool = bool(cfg.get("narration_enabled", True))
+        self.heartbeat_enabled: bool = bool(cfg.get("heartbeat_enabled", True))
+        self.heartbeat_interval_s: float = float(cfg.get("heartbeat_interval_s") or 45)
         self.max_speech_chars: int = int(cfg.get("max_speech_chars") or 280)
 
         self._q: "queue.Queue[dict]" = queue.Queue(maxsize=100)
@@ -249,6 +272,11 @@ class _Narrator:
         self._last_say_ts: float = 0.0
         self._last_text: str = ""
         self._busy = False  # ワーカーがアイテム処理中か（atexit drain の同期用）
+        # ハートビート用の現在状況（pre_tool_call / pre_llm_call が更新）
+        self._state_lock = threading.Lock()
+        self._running_tool: dict | None = None
+        self._thinking: bool = False
+        self._heartbeat_idx: int = 0
         if start_thread:  # テストでは False にして各メソッドを直接呼ぶ
             self._thread = threading.Thread(target=self._run, name="kai-narrator", daemon=True)
             self._thread.start()
@@ -267,6 +295,23 @@ class _Narrator:
         with self._events_lock:
             self._events.append(ev)
 
+    def set_tool_running(self, tool: str, args: Any, session_id: str = "") -> None:
+        with self._state_lock:
+            self._running_tool = {
+                "tool": tool,
+                "args": args,
+                "session_id": session_id,
+                "started_at": time.monotonic(),
+            }
+
+    def clear_tool_running(self) -> None:
+        with self._state_lock:
+            self._running_tool = None
+
+    def set_thinking(self, thinking: bool) -> None:
+        with self._state_lock:
+            self._thinking = thinking
+
     # -- ワーカー側 --
 
     def _run(self) -> None:
@@ -281,6 +326,7 @@ class _Narrator:
                     self._handle_response(item)
                 elif item is None:
                     self._maybe_narrate()
+                    self._maybe_heartbeat()
             except Exception as e:  # ワーカーは死なせない
                 print(f"[kai_narrator] WARN worker error: {e}")
             finally:
@@ -348,6 +394,47 @@ class _Narrator:
         if text:
             self._say(text, source="narrator", priority="low", session_id=session_id)
 
+    def _maybe_heartbeat(self) -> None:
+        """無音が続いたら現在状況を一言実況する（Issue #10）。
+
+        post_tool_call 由来のイベントが無い時間帯（長時間コマンドの実行中・
+        LLM 思考中）に、最後の発話から heartbeat_interval_s 経過していたら
+        「いま何をしているか」を発話する。何も走っていなければ黙る
+        （常駐プロセスのアイドル時に喋り続けない）。
+        """
+        if not (self.narration_enabled and self.heartbeat_enabled):
+            return
+        if time.monotonic() - self._last_say_ts < self.heartbeat_interval_s:
+            return
+        with self._state_lock:
+            running = dict(self._running_tool) if self._running_tool else None
+            thinking = self._thinking
+
+        if running is not None:
+            elapsed_s = int(time.monotonic() - float(running.get("started_at") or 0))
+            ev = {
+                "tool": running.get("tool"),
+                "args": running.get("args"),
+                "status": "running",
+                "duration_ms": elapsed_s * 1000,
+                "session_id": running.get("session_id", ""),
+            }
+            try:
+                text = _generate_narration([ev])
+            except Exception:
+                # 実況 LLM 不達でも無音は避ける（定型文フォールバック）
+                tool = str(running.get("tool") or "コマンド")
+                text = f"いま {tool} の完了を待ってるよ。もう {elapsed_s} 秒くらい経ったかな"
+            if text:
+                self._say(text, source="narrator", priority="low",
+                          session_id=str(running.get("session_id") or ""))
+            return
+
+        if thinking:
+            text = _HEARTBEAT_IDLE_LINES[self._heartbeat_idx % len(_HEARTBEAT_IDLE_LINES)]
+            self._heartbeat_idx += 1
+            self._say(text, source="narrator", priority="low")
+
 
 _narrator: _Narrator | None = None
 
@@ -355,11 +442,20 @@ _narrator: _Narrator | None = None
 # --- hook コールバック（同期・即 return・None 返し）-----------------------------
 
 
+def _on_pre_tool_call(tool_name: str = "", args: Any = None, session_id: str = "",
+                      **_: Any) -> None:
+    # 観測のみ（block ディレクティブは返さない）。ハートビート用に
+    # 「いま実行中のツール」を記録する
+    if _narrator is not None:
+        _narrator.set_tool_running(tool_name, args, session_id=session_id)
+
+
 def _on_post_tool_call(tool_name: str = "", args: Any = None, session_id: str = "",
                        duration_ms: Any = None, status: str = "",
                        error_message: str = "", **_: Any) -> None:
     if _narrator is None:
         return
+    _narrator.clear_tool_running()
     _narrator.push_tool_event({
         "tool": tool_name,
         "args": args,
@@ -370,18 +466,28 @@ def _on_post_tool_call(tool_name: str = "", args: Any = None, session_id: str = 
     })
 
 
+def _on_pre_llm_call(**_: Any) -> None:
+    # LLM 応答待ち（思考中）に入った。ハートビートの定型文発話の対象になる
+    if _narrator is not None:
+        _narrator.set_thinking(True)
+
+
 def _on_post_llm_call(session_id: str = "", task_id: str = "",
                       assistant_response: str = "", **_: Any) -> None:
-    if _narrator is None or not assistant_response:
+    if _narrator is None:
         return
-    _narrator.push_response(assistant_response, session_id=session_id, task_id=task_id)
+    _narrator.set_thinking(False)
+    if assistant_response:
+        _narrator.push_response(assistant_response, session_id=session_id, task_id=task_id)
 
 
 def _on_session_start(**_: Any) -> None:
-    # 新しいセッションが始まったら前セッションの残イベントを捨てる
+    # 新しいセッションが始まったら前セッションの残イベント・状況を捨てる
     if _narrator is not None:
         with _narrator._events_lock:
             _narrator._events.clear()
+        _narrator.clear_tool_running()
+        _narrator.set_thinking(False)
 
 
 def register(ctx) -> None:
@@ -395,6 +501,8 @@ def register(ctx) -> None:
     )
     if _narrator is None:
         _narrator = _Narrator()
+    ctx.register_hook("pre_tool_call", _on_pre_tool_call)
     ctx.register_hook("post_tool_call", _on_post_tool_call)
+    ctx.register_hook("pre_llm_call", _on_pre_llm_call)
     ctx.register_hook("post_llm_call", _on_post_llm_call)
     ctx.register_hook("on_session_start", _on_session_start)
