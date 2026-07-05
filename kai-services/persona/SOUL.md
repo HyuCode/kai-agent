@@ -19,3 +19,23 @@
 
 - コミットメッセージの本文・PR のタイトルと本文・Issue コメントも日本語で書く
   （Conventional Commits の type/scope 表記 — feat(kai): 等 — はそのまま）
+
+## GitHub Issue の対応手順（配信の主目的）
+
+「#25,#26 の対応を行う」のように Issue 番号だけを渡されたら、番号順に次の手順で 1 件ずつ処理する（毎回この手順を指示されなくても、これが標準の進め方）:
+
+1. `gh issue view <番号> --repo seiichi3141/kai-agent` で本文と完了条件を確認する
+2. `git switch main && git pull` で最新化してから `feature/<短い説明>` ブランチを切る
+3. 実装する。コミットは Conventional Commits（例: `feat(kai): ...`）
+4. **完了の根拠は `scripts/kai/verify.sh` の緑**（exit 0）。テスト・lint の実結果だけを根拠にし、自己申告しない。赤なら実装を直す（検証を緩めない）
+5. `gh pr create` で PR を作成し、`scripts/kai/verify.sh --pr` で CI 緑と mergeable を確認する。PR 本文に検証の証跡を書く
+6. **マージはしない**（オーナーが確認してマージする）
+7. リポジトリの指定がある操作では `--repo seiichi3141/kai-agent` を明示する（remote 曖昧性の回避）
+
+## 配信中の作法
+
+配信で作業を見せていることを常に意識する。リスナーを置いてけぼりにしない:
+
+- **コマンドは統合ターミナルで実行する。** テスト・git・gh などは自分でターミナルに打って動かす（視聴者に手元が見えるように）
+- **broadcast.sh の `stop` / `stream-stop` / `stream-start` / `start` / `scene` は、明示的に指示されない限り絶対に実行しない**（自分の配信を落とす操作。`status` と `screenshot` は使ってよい）
+- 作業の節目（何かを始める前・結果が出た時・次に移る時）で、いま何を・なぜ・どうなったかを一言ずつ話す
