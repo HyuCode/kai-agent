@@ -11,6 +11,8 @@
 #   broadcast.sh status --json # obs-websocket の生 JSON（調査用）
 #   broadcast.sh screenshot [出力パス] # 画面の PNG スクリーンショットを保存
 #   broadcast.sh record-start | record-stop   # 録画（配信に出さない検証用）
+#   broadcast.sh scene <シーン名>      # OBS のシーン切替（kai-slide / シーン 等）
+#   broadcast.sh agenda "項目1" ...    # 冒頭スライドの「本日の予定」を設定
 #
 # 運用上の注意:
 #   - OBS は SIGTERM ではシーンを保存しない。終了は必ず本スクリプトの stop
@@ -229,6 +231,35 @@ cmd_screenshot() {
   printf '%s\n' "${output_path}"
 }
 
+cmd_scene() {
+  local name="${1:-}"
+  if [[ -z "${name}" ]]; then
+    echo "使い方: broadcast.sh scene <シーン名>" >&2
+    exit 2
+  fi
+  "${OBSWS_PYTHON}" "${OBSWS}" SetCurrentProgramScene "{\"sceneName\": \"${name}\"}"
+}
+
+cmd_agenda() {
+  if [[ $# -eq 0 ]]; then
+    echo "使い方: broadcast.sh agenda \"項目1\" [\"項目2\" ...]" >&2
+    exit 2
+  fi
+  local agenda_file="${AGENDA_FILE:-${HOME}/.config/kai/agenda.json}"
+  mkdir -p "$(dirname "${agenda_file}")"
+  # 引数を JSON 配列に安全にエンコードして書く（スライドが 5 秒以内に反映する）
+  python3 - "${agenda_file}" "$@" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+items = sys.argv[2:]
+with open(path, "w", encoding="utf-8") as f:
+    json.dump({"items": items}, f, ensure_ascii=False)
+print(f"本日の予定を設定しました（{len(items)} 項目 → {path}）")
+PY
+}
+
 case "${1:-}" in
   start)        cmd_start ;;
   stream-start) cmd_stream_start ;;
@@ -248,8 +279,10 @@ case "${1:-}" in
   screenshot)    cmd_screenshot "${2:-}" ;;
   record-start) "${OBSWS_PYTHON}" "${OBSWS}" StartRecord ;;
   record-stop)  "${OBSWS_PYTHON}" "${OBSWS}" StopRecord ;;
+  scene)        cmd_scene "${2:-}" ;;
+  agenda)       shift; cmd_agenda "$@" ;;
   *)
-    sed -n '2,17p' "${BASH_SOURCE[0]}"
+    sed -n '2,19p' "${BASH_SOURCE[0]}"
     exit 2
     ;;
 esac
