@@ -20,12 +20,16 @@ function logWarn(message, meta) {
 }
 
 // ---------------------------------------------------------------------------
-// 技術用語辞書（technical-terms.json を読み込み、例外辞書を構築する）
+// 例外辞書（technical-terms.json）
+//
+// 運用方針（docs/kai/design/tts-reading-rules.md §4.4）: 事前に語彙を網羅する
+// 読み辞書ではなく、汎用機構（品詞規則 + LLM）でもまだ読み間違いを観測した語だけを
+// 登録する「観測ベースの例外辞書」。エントリの一括拡充はしない。
 // ---------------------------------------------------------------------------
 
 const TERMS_JSON_PATH = join(dirname(fileURLToPath(import.meta.url)), "technical-terms.json");
 
-/** 技術用語辞書: { 用語: 読み } */
+/** 例外辞書: { 用語: 読み } */
 const TECHNICAL_TERMS = JSON.parse(readFileSync(TERMS_JSON_PATH, "utf-8"));
 
 /**
@@ -47,8 +51,17 @@ function termBoundaryPattern(term) {
   return `${prefix}${escaped}${suffix}`;
 }
 
-/** buildExceptionDict() のキャッシュ。技術用語辞書はプロセス起動後は不変なので一度だけ構築する */
+/** buildExceptionDict() のキャッシュ。例外辞書はプロセス起動後は不変なので一度だけ構築する */
 let exceptionDictCache = null;
+
+/**
+ * 大文字小文字非区別にしてよい用語か。英字 3 文字以上のみ非区別
+ * （kai / Kai / KAI をすべて拾う）。2 文字以下の頭字語（AI・CI・PR 等）は
+ * 一般語への誤マッチ（例: AI が air に部分適用）を防ぐため完全一致のみ。
+ */
+function isCaseInsensitiveTerm(term) {
+  return (term.match(/[A-Za-z]/g) ?? []).length >= 3;
+}
 
 /**
  * EXCEPTION_DICT 互換の [RegExp, string][] を生成する。
@@ -60,7 +73,10 @@ export function buildExceptionDict() {
   if (exceptionDictCache !== null) return exceptionDictCache;
   exceptionDictCache = Object.entries(TECHNICAL_TERMS)
     .sort(([a], [b]) => b.length - a.length)
-    .map(([term, reading]) => [new RegExp(termBoundaryPattern(term), "g"), reading]);
+    .map(([term, reading]) => [
+      new RegExp(termBoundaryPattern(term), isCaseInsensitiveTerm(term) ? "gi" : "g"),
+      reading,
+    ]);
   return exceptionDictCache;
 }
 
@@ -240,21 +256,64 @@ function tokenizeToKana(tokenizer, text) {
 }
 
 /**
+ * 1 トークンの読み（カタカナ）を返す。品詞ベースの汎用規則で読み分ける
+ * （個別語の列挙はしない — docs/kai/design/tts-reading-rules.md §4.3-2）。
+ */
+function tokenReading(token) {
+  const surface = token.surface_form;
+  // 係助詞「は」→「ワ」（「今日は」「駅では」の は もこれでカバー）
+  if (surface === "は" && token.pos_detail_1 === "係助詞") {
+    return "ワ";
+  }
+  // 接続詞・感動詞で表層形が「は」で終わる語 → 読み末尾の「ハ」を「ワ」に
+  //（では・それでは・こんにちは・こんばんは 等が個別列挙なしでカバーされる）
+  if ((token.pos === "接続詞" || token.pos === "感動詞") && surface.endsWith("は")) {
+    const reading = token.reading ?? surface;
+    return reading.replace(/ハ$/, "ワ").replace(/は$/, "わ");
+  }
+  // 格助詞「へ」→「エ」（語中の「へ」= 部屋・経る等は品詞が違うので影響しない）
+  if (surface === "へ" && token.pos === "助詞" && token.pos_detail_1 === "格助詞") {
+    return "エ";
+  }
+  // 助詞「を」→「オ」（AquesTalk 公式推奨の読み）
+  if (surface === "を" && token.pos === "助詞") {
+    return "オ";
+  }
+  return token.reading ?? surface;
+}
+
+/**
+ * 息継ぎ用の読点を補ってよい長さか（目安 25 モーラ。小書き文字・促音・長音は
+ * モーラに数えない近似）。
+ */
+function isLongUtterance(kana) {
+  const mora = kana.replace(/[ァィゥェォャュョッーぁぃぅぇぉゃゅょっ]/g, "").length;
+  return mora > 25;
+}
+
+/**
  * テキストセグメントをトークナイズしてカタカナ列に変換する。
- * 助詞「は」（係助詞）は「ワ」に変換する。
+ * 品詞ベースの読み分け（tokenReading）と、読点のない長文への読点補完
+ * （息継ぎ — 接続助詞の直後に「、」）を行う。
  */
 function tokenizeTextSegment(tokenizer, text) {
   if (!text) return "";
   const tokens = tokenizer.tokenize(text);
-  return tokens
-    .map((token) => {
-      // 助詞「は」（係助詞）→「ワ」
-      if (token.surface_form === "は" && token.pos_detail_1 === "係助詞") {
-        return "ワ";
-      }
-      return token.reading ?? token.surface_form;
-    })
-    .join("");
+  const readings = tokens.map(tokenReading);
+  const joined = readings.join("");
+
+  // 息継ぎ: もともと読点を含まない長い文に限り、接続助詞（て・で・ので・から等）の
+  // 直後に読点を補う。重複・句点直前の読点は convertKanaText 側で整理される。
+  if (!text.includes("、") && isLongUtterance(joined)) {
+    return tokens
+      .map((token, i) => {
+        const isConjunctive = token.pos === "助詞" && token.pos_detail_1 === "接続助詞";
+        return isConjunctive ? `${readings[i]}、` : readings[i];
+      })
+      .join("");
+  }
+
+  return joined;
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +381,27 @@ function convertKanaText(text) {
   // AquesTalk10 が解釈できない仮名の正規化（づ・ぢは音声記号列で未定義 — 実機確認済み）
   result = result.replace(/づ/g, "ず").replace(/ぢ/g, "じ");
 
+  // ゔ（ヴ）は未対応 → ば行で代替（拗音を先に、単独ゔは「ぶ」）
+  result = result
+    .replace(/ゔぁ/g, "ば")
+    .replace(/ゔぃ/g, "び")
+    .replace(/ゔぇ/g, "べ")
+    .replace(/ゔぉ/g, "ぼ")
+    .replace(/ゔゃ/g, "びゃ")
+    .replace(/ゔゅ/g, "びゅ")
+    .replace(/ゔょ/g, "びょ")
+    .replace(/ゔ/g, "ぶ");
+
+  // ぐ行拗音（ぐぃ等）は未対応 → 直音で代替
+  result = result
+    .replace(/ぐぃ/g, "ぎ")
+    .replace(/ぐぅ/g, "ぐ")
+    .replace(/ぐぇ/g, "げ")
+    .replace(/ぐぉ/g, "ご");
+
+  // を → お（AquesTalk 公式推奨。品詞規則を通らず残った分の安全網）
+  result = result.replace(/を/g, "お");
+
   // 全角・半角括弧とその内容を除去（AquesTalk10非対応文字）
   result = result
     .replace(/[（(][^（()）)]*[）)]/g, "")
@@ -335,6 +415,9 @@ function convertKanaText(text) {
     .replace(/[。．.]/g, "。") // 句点系 → 長めポーズ
     .replace(/[・：:]/g, ";") // 中点・コロン → ポーズなし区切り
     .replace(/[-‐‑–—−]/g, "、"); // ハイフン類 → 短めポーズ（素通しすると合成失敗 — 実機確認済み）
+
+  // 読点補完などで生じた重複読点・句切記号直前の読点を整理
+  result = result.replace(/、+/g, "、").replace(/、([。？])/g, "$1");
 
   // スペース（全角・半角）を除去
   result = result.replace(/[\s　]+/g, "");
