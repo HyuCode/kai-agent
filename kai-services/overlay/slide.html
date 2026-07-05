@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<title>kai — 本日の予定</title>
+<!--
+  冒頭スライド（Issue #8）。OBS のシーン「kai-slide」のブラウザソースが
+  http://127.0.0.1:8900/overlay/slide.html を 1920x1080 で表示する。
+  アジェンダは同一オリジンの GET /agenda（broadcast.sh agenda で設定）を
+  5 秒間隔でポーリングし、配信中でも差し替えられる。自己完結（外部リソースなし）。
+-->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    background: linear-gradient(135deg, #101418 0%, #16202b 60%, #0f2233 100%);
+    color: #e8edf2;
+    font-family: "Noto Sans CJK JP", "Hiragino Sans", sans-serif;
+    display: flex; flex-direction: column;
+    padding: 90px 120px;
+  }
+  header { display: flex; align-items: baseline; gap: 28px; }
+  .brand {
+    font-size: 64px; font-weight: 800; letter-spacing: 0.04em;
+    color: #7ee787;
+  }
+  .brand small { font-size: 28px; font-weight: 400; color: #9da7b3; margin-left: 16px; }
+  .date { margin-left: auto; font-size: 30px; color: #9da7b3; font-variant-numeric: tabular-nums; }
+  h1 {
+    margin-top: 70px; font-size: 52px; font-weight: 700; color: #9ecbff;
+    border-left: 10px solid #9ecbff; padding-left: 26px;
+  }
+  ul { margin-top: 48px; list-style: none; }
+  li {
+    font-size: 44px; line-height: 1.6; margin-bottom: 26px;
+    display: flex; align-items: baseline; gap: 22px;
+  }
+  li::before { content: "▸"; color: #7ee787; font-size: 40px; }
+  footer { margin-top: auto; font-size: 26px; color: #6b7480; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">kai<small>self-improving AI coder</small></div>
+    <div class="date" id="date"></div>
+  </header>
+  <h1>本日の予定</h1>
+  <ul id="items"></ul>
+  <footer>音声: AquesTalk10 ／ このチャンネルでは AI エージェント kai が自分自身のコードをライブで開発しています</footer>
+  <script>
+    "use strict";
+    const dateEl = document.getElementById("date");
+    const itemsEl = document.getElementById("items");
+    dateEl.textContent = new Date().toLocaleDateString("ja-JP", {
+      year: "numeric", month: "long", day: "numeric", weekday: "short",
+    });
+    async function refresh() {
+      try {
+        const res = await fetch("/agenda", { cache: "no-store" });
+        const data = await res.json();
+        const items = Array.isArray(data.items) ? data.items : [];
+        itemsEl.innerHTML = "";
+        for (const item of items) {
+          const li = document.createElement("li");
+          li.textContent = String(item);
+          itemsEl.appendChild(li);
+        }
+      } catch {
+        /* speechd 停止中は前回表示を維持 */
+      }
+    }
+    refresh();
+    setInterval(refresh, 5000);
+  </script>
+</body>
+</html>

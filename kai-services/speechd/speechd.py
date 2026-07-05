@@ -60,6 +60,9 @@ _default_subtitle_file = os.path.join(
     os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "kai-subtitle.txt")
 SUBTITLE_FILE = Path(_env("SUBTITLE_FILE", _default_subtitle_file))
 
+# 冒頭スライドのアジェンダ（broadcast.sh agenda が書き、GET /agenda が返す）
+AGENDA_FILE = Path(_env("AGENDA_FILE", str(Path.home() / ".config/kai/agenda.json")))
+
 CONNECT_TIMEOUT = 3.0
 TOTAL_TIMEOUT = 30.0
 # 文間の無音（ms）。一気読み感を消す「息継ぎ」（docs/kai/design/tts-reading-rules.md §5.3）
@@ -476,10 +479,26 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True})
         elif self.path == "/events":
             self._handle_sse()
+        elif self.path == "/agenda":
+            self._handle_agenda()
         elif self.path == "/overlay" or self.path.startswith("/overlay/"):
             self._handle_overlay()
         else:
             self._send_json(404, {"error": "not found"})
+
+    def _handle_agenda(self) -> None:
+        """`GET /agenda`: 冒頭スライド用のアジェンダ（本日の予定）を返す。
+
+        AGENDA_FILE（broadcast.sh agenda が書く JSON）をそのまま返し、
+        無ければ既定文言を返す。スライド（/overlay/slide.html）が同一オリジンで
+        ポーリングする。
+        """
+        try:
+            body = AGENDA_FILE.read_text(encoding="utf-8")
+            data = json.loads(body)
+        except (OSError, ValueError):
+            data = {"items": ["準備中…"]}
+        self._send_json(200, data)
 
     def _handle_overlay(self) -> None:
         """オーバーレイページの静的配信（OBS ブラウザソース用）。
@@ -500,6 +519,7 @@ class _Handler(BaseHTTPRequestHandler):
             "index.html": "text/html; charset=utf-8",
             "app.js": "text/javascript; charset=utf-8",
             "style.css": "text/css; charset=utf-8",
+            "slide.html": "text/html; charset=utf-8",  # 冒頭スライド（OBS シーン kai-slide 用）
         }
         if name not in allowed:
             self._send_json(404, {"error": "not found"})
