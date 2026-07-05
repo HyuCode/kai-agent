@@ -29,9 +29,54 @@ test("formatKoe: 既に句点・疑問符で終わる場合は追加しない", 
   assert.equal(formatKoe("ソウデス。"), "そうです。");
 });
 
-test("toKoe: ひらがな入力をそのまま音声記号列に変換する", async () => {
-  const koe = await toKoe("こんにちは");
-  assert.equal(koe, "こんにちは。");
+test("toKoe: 挨拶の感動詞は末尾の「は」を「わ」に読み分ける（品詞の汎用規則）", async () => {
+  // 仕様変更（Issue #7 / design/tts-reading-rules.md §4.3-2）:
+  // 感動詞で「は」で終わる語は末尾ハ→ワ。個別語の辞書ではなく品詞規則で行う
+  assert.equal(await toKoe("こんにちは"), "こんにちわ。");
+  // 汎用性の証明: こんばんは は辞書にもコードにも列挙されていないが同じ規則で通る
+  assert.equal(await toKoe("こんばんは"), "こんばんわ。");
+});
+
+test("toKoe: 単独の接続詞「では」「それでは」は「でわ」と読む", async () => {
+  assert.match(await toKoe("では、始めます"), /^でわ、/);
+  assert.match(await toKoe("それでは次に進みます"), /^それでわ/);
+});
+
+test("toKoe: 係助詞「は」の既存挙動が回帰していない", async () => {
+  assert.match(await toKoe("今日はいい天気です"), /きょうわ/);
+  assert.match(await toKoe("駅では電車を待つ"), /えきでわ/);
+});
+
+test("toKoe: 格助詞「へ」は「え」、助詞「を」は「お」と読む", async () => {
+  // 語中の「へ」（部屋）は変化せず、格助詞の「へ」だけが「え」になる
+  assert.equal(await toKoe("部屋へ行く"), "へやえいく。");
+  assert.equal(await toKoe("本を読む"), "ほんおよむ。");
+});
+
+test("toKoe: 例外辞書の kai はどの表記でも「かい」と読む（スペルアウトしない）", async () => {
+  // 第 1 回リハーサルで「けーえーあい」を観測 → 例外辞書に登録（§4.4）
+  for (const variant of ["kai", "Kai", "KAI"]) {
+    const koe = await toKoe(`${variant} です`);
+    assert.match(koe, /かい/, `${variant} が「かい」と読まれること`);
+    assert.doesNotMatch(koe, /<ALPHA/, `${variant} がスペルアウトに落ちないこと`);
+  }
+});
+
+test("toKoe: 2 文字以下の頭字語エントリは一般語に誤マッチしない（照合ガード）", async () => {
+  // AI（えーあい）が air の一部に適用されてはいけない
+  const koe = await toKoe("air を確認");
+  assert.doesNotMatch(koe, /えーあい/);
+  assert.match(koe, /<ALPHA VAL=AIR>/);
+});
+
+test("toKoe: 読点のない長文は接続助詞の直後に読点を補う（息継ぎ）", async () => {
+  const koe = await toKoe("今日はとても天気が良いので散歩に出かけて公園で休みます");
+  assert.match(koe, /ので、/);
+  assert.match(koe, /でかけて、/);
+});
+
+test("toKoe: 短い文には読点を補わない", async () => {
+  assert.equal(await toKoe("散歩に出かけて休む"), "さんぽにでかけてやすむ。");
 });
 
 test("toKoe: 技術用語を含むテキストを変換する", async () => {
@@ -49,6 +94,17 @@ test("formatKoe: づ・ぢを AquesTalk10 が解釈できる ず・じ に正規
   // AquesTalk10 の音声記号列では づ・ぢ が未定義で合成失敗する（実機確認済み）
   assert.equal(formatKoe("ヒヅケ"), "ひずけ。");
   assert.equal(formatKoe("チヂミ"), "ちじみ。");
+});
+
+test("formatKoe: ゔ（ヴ）はば行で代替する", () => {
+  // ゔ は AquesTalk10 未対応。従来は最終 allowlist を素通りして合成失敗していた
+  assert.equal(formatKoe("ヴァイオリン"), "ばいおりん。");
+  assert.equal(formatKoe("レヴュー"), "れびゅー。");
+  assert.equal(formatKoe("ラヴ"), "らぶ。");
+});
+
+test("formatKoe: ぐ行拗音は直音で代替する", () => {
+  assert.equal(formatKoe("グィード"), "ぎーど。");
 });
 
 test("formatKoe: ハイフン類は読点（短ポーズ）に正規化する", () => {
