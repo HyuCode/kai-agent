@@ -209,6 +209,55 @@ def test_maybe_narrate_swallows_llm_failure(narrator_mod, narrator, monkeypatch)
     assert not sent
 
 
+# --- path shortening（Issue #9: フルパスを流さない）------------------------------
+
+
+def test_shorten_paths_to_basename(narrator_mod):
+    out = narrator_mod._shorten_paths(
+        "/home/kai/kai-agent/kai-services/streaming/vm/broadcast.sh を編集して "
+        "~/kai-agent/docs/kai/design/00-system.md も見る"
+    )
+    assert out == "broadcast.sh を編集して 00-system.md も見る"
+
+
+def test_shorten_paths_keeps_urls_and_short_refs(narrator_mod):
+    # URL は巻き込まない（ドメイン直後の / 連続はパスと区別する）
+    text = "https://github.com/seiichi3141/kai-agent を開く"
+    assert narrator_mod._shorten_paths(text) == text
+    # スラッシュ 1 個の相対参照（tests/agent 等）は読める範囲なので保持
+    assert narrator_mod._shorten_paths("tests/agent を実行") == "tests/agent を実行"
+
+
+def test_digest_args_shortens_paths(narrator_mod):
+    d = narrator_mod._digest_args({"file_path": "/home/kai/kai-agent/plugins/kai_narrator/__init__.py"})
+    assert d == "__init__.py"
+
+
+def test_speechify_shortens_paths(narrator_mod):
+    out = narrator_mod._speechify_response("`/home/kai/kai-agent/scripts/kai/verify.sh` を回したよ", 280)
+    assert "verify.sh を回したよ" == out
+
+
+def test_generate_narration_output_shortens_paths(narrator_mod, monkeypatch):
+    # LLM がプロンプト指示を無視してパスを出しても機械的に短縮される
+    class _Resp:
+        pass
+
+    def _fake_call_llm(**kwargs):
+        return _Resp()
+
+    fake_aux = types.ModuleType("agent.auxiliary_client")
+    fake_aux.call_llm = lambda **kwargs: _Resp()
+    fake_aux.extract_content_or_reasoning = (
+        lambda resp: "いま /home/kai/kai-agent/kai-services/speechd/speechd.py を直してるよ"
+    )
+    fake_agent = types.ModuleType("agent")
+    monkeypatch.setitem(sys.modules, "agent", fake_agent)
+    monkeypatch.setitem(sys.modules, "agent.auxiliary_client", fake_aux)
+    out = narrator_mod._generate_narration([{"tool": "editor", "args": {}}])
+    assert out == "いま speechd.py を直してるよ"
+
+
 # --- worker: heartbeat（無音対策 Issue #10）--------------------------------------
 
 

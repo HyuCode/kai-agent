@@ -96,6 +96,28 @@ def _plugin_cfg() -> dict:
         return {}
 
 
+# --- パスの短縮（Issue #9: 実況・字幕にフルパスを流さない）--------------------
+
+# スラッシュ 2 個以上のパス様文字列（読み上げ・字幕に耐えない）。URL を巻き込まない
+# よう、直前が英数字・ / ・ : 等のとき（https://github.com/... の途中など）は
+# マッチさせない。
+_PATH_RE = re.compile(r"(?<![\w./:\-])~?/?(?:[\w.\-]+/){2,}[\w.\-]+")
+
+
+def _shorten_paths(text: str) -> str:
+    """パス様文字列をファイル名（basename）だけに短縮する。
+
+    「/home/kai/kai-agent/kai-services/streaming/vm/broadcast.sh を編集」のような
+    実況・発話は聞き取れないため、「broadcast.sh を編集」に落とす。
+    """
+
+    def _basename(m: re.Match) -> str:
+        base = m.group(0).rstrip("/").rsplit("/", 1)[-1]
+        return base or m.group(0)
+
+    return _PATH_RE.sub(_basename, text)
+
+
 # --- 応答テキスト → 発話向けテキスト -----------------------------------------
 
 _CODE_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
@@ -121,6 +143,7 @@ def _speechify_response(text: str, max_chars: int) -> str:
     s = _MD_MARKS_RE.sub("", s)
     s = re.sub(r"\s*\n\s*", " ", s)
     s = re.sub(r"[ \t]{2,}", " ", s).strip()
+    s = _shorten_paths(s)  # フルパスは読み上げ・字幕に耐えない（Issue #9）
     if len(s) <= max_chars:
         return s
     out: list[str] = []
@@ -163,7 +186,8 @@ def _digest_args(args: Any) -> str:
         s = ""
     else:
         s = str(args)
-    s = _mask(s.strip())
+    # LLM に渡す段階でパスを basename 化しておく（出力に混入する誘因を断つ）
+    s = _shorten_paths(_mask(s.strip()))
     return s[:80] + ("…" if len(s) > 80 else "")
 
 
@@ -192,6 +216,8 @@ _NARRATION_SYSTEM_PROMPT = (
     "ルール:\n"
     "- 出力は実況ひとことのみ（20〜60文字、日本語の話し言葉、1〜2文）\n"
     "- コマンド名・ファイル名・技術用語は英語のまま自然に混ぜてよい\n"
+    "- ファイルはファイル名だけで呼ぶ。ディレクトリパスや URL は言わない"
+    "（『設定ファイルを編集中』のように言い換える）\n"
     "- ログにない内容を作らない。誇張しない\n"
     "- トークン・パスワード・環境変数の値らしき文字列は絶対に出力しない\n"
     "- 前置き・引用符・記号装飾・改行は不要。実況文だけを出力する"
@@ -233,7 +259,8 @@ def _generate_narration(events: list[dict]) -> str:
         except Exception:
             text = ""
     text = re.sub(r"\s+", " ", str(text)).strip().strip('"「」')
-    return _mask(text)[:120]
+    # プロンプト指示が漏れても機械的に短縮する（二段構え — Issue #9）
+    return _shorten_paths(_mask(text))[:120]
 
 
 # --- speechd クライアント -------------------------------------------------------
