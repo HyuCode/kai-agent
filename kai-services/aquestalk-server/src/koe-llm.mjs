@@ -247,6 +247,8 @@ export function sanitizeLlmKoe(koe) {
       .replace(/ゔょ/g, "びょ")
       .replace(/ゔ/g, "ぶ");
     p = p.replace(/ぐぃ/g, "ぎ").replace(/ぐぅ/g, "ぐ").replace(/ぐぇ/g, "げ").replace(/ぐぉ/g, "ご");
+    // ぶ行拗音も未対応（gpt-5.4-mini が verify→ぶぇりふぁい と書き合成失敗 — 実機観測）
+    p = p.replace(/ぶぁ/g, "ば").replace(/ぶぃ/g, "び").replace(/ぶぇ/g, "べ").replace(/ぶぉ/g, "ぼ");
     // AquesTalk10 が解釈できない Unicode 記号（✓ ★ ♪ 等）を除去
     p = p.replace(/[^ -~　-鿿＀-￯]/gu, "");
     return p;
