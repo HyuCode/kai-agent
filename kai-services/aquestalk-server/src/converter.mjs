@@ -402,6 +402,13 @@ function convertKanaText(text) {
     .replace(/ぐぇ/g, "げ")
     .replace(/ぐぉ/g, "ご");
 
+  // ぶ行拗音（ぶぇ等）も未対応 → ば行で代替（実機観測: ぶぇりふぁい が合成失敗）
+  result = result
+    .replace(/ぶぁ/g, "ば")
+    .replace(/ぶぃ/g, "び")
+    .replace(/ぶぇ/g, "べ")
+    .replace(/ぶぉ/g, "ぼ");
+
   // を → お（AquesTalk 公式推奨。品詞規則を通らず残った分の安全網）
   result = result.replace(/を/g, "お");
 

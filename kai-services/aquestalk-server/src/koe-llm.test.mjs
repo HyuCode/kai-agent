@@ -70,8 +70,10 @@ test("sanitizeLlmKoe: AquesTalk10 非対応の Unicode 記号を除去する", (
   assert.equal(sanitizeLlmKoe("かんりょう✓です★。"), "かんりょうです。");
 });
 
-test("sanitizeLlmKoe: ゔ・ぐ行拗音を代替する", () => {
+test("sanitizeLlmKoe: ゔ・ぐ行・ぶ行拗音を代替する", () => {
   assert.equal(sanitizeLlmKoe("ゔぁいおりんとぐぃたー。"), "ばいおりんとぎたー。");
+  // gpt-5.4-mini が verify を ぶぇりふぁい と書き合成失敗した実機観測より
+  assert.equal(sanitizeLlmKoe("ぶぇりふぁいの/けっか。"), "べりふぁいの/けっか。");
 });
 
 test("sanitizeLlmKoe: を は お に確定させる（LLM の指示取りこぼし対策）", () => {
