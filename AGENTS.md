@@ -2,6 +2,8 @@
 
 Instructions for AI coding assistants and developers working on the hermes-agent codebase.
 
+This repository implements the AITuber kai on top of a fork of hermes-agent.
+
 **Never give up on the right solution.**
 
 ## What Hermes Is
