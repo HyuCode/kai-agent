@@ -209,6 +209,90 @@ def test_maybe_narrate_swallows_llm_failure(narrator_mod, narrator, monkeypatch)
     assert not sent
 
 
+# --- worker: heartbeat（無音対策 Issue #10）--------------------------------------
+
+
+def test_heartbeat_narrates_running_tool(narrator_mod, narrator, monkeypatch):
+    sent = []
+    seen_events = []
+    monkeypatch.setattr(narrator_mod, "_post_say", lambda url, payload, timeout=3.0: sent.append(payload))
+    monkeypatch.setattr(narrator_mod, "_generate_narration",
+                        lambda events: seen_events.extend(events) or "CIの完了を待ってるよ")
+    narrator.set_tool_running("terminal", {"command": "verify.sh --pr"}, session_id="s1")
+    narrator._maybe_heartbeat()  # _last_say_ts=0 なのでインターバル経過扱い
+    assert len(sent) == 1
+    assert sent[0]["source"] == "narrator"
+    assert sent[0]["priority"] == "low"
+    assert sent[0]["session_id"] == "s1"
+    assert seen_events[0]["status"] == "running"
+    assert seen_events[0]["tool"] == "terminal"
+
+
+def test_heartbeat_falls_back_to_template_on_llm_failure(narrator_mod, narrator, monkeypatch):
+    sent = []
+    monkeypatch.setattr(narrator_mod, "_post_say", lambda url, payload, timeout=3.0: sent.append(payload))
+
+    def _boom(events):
+        raise RuntimeError("llm down")
+    monkeypatch.setattr(narrator_mod, "_generate_narration", _boom)
+    narrator.set_tool_running("terminal", {"command": "sleep"})
+    narrator._maybe_heartbeat()
+    assert len(sent) == 1  # LLM 不達でも無音を避ける（定型文）
+    assert "terminal" in sent[0]["text"]
+
+
+def test_heartbeat_idle_lines_rotate_while_thinking(narrator_mod, narrator, monkeypatch):
+    sent = []
+    monkeypatch.setattr(narrator_mod, "_post_say", lambda url, payload, timeout=3.0: sent.append(payload))
+    narrator.set_thinking(True)
+    narrator._maybe_heartbeat()
+    narrator._last_say_ts = 0.0  # 次のインターバル経過を装う
+    narrator._last_text = ""
+    narrator._maybe_heartbeat()
+    assert len(sent) == 2
+    assert sent[0]["text"] != sent[1]["text"]  # ローテーションで同文を避ける
+
+
+def test_heartbeat_silent_when_nothing_running(narrator_mod, narrator, monkeypatch):
+    sent = []
+    monkeypatch.setattr(narrator_mod, "_post_say", lambda url, payload, timeout=3.0: sent.append(payload))
+    narrator._maybe_heartbeat()  # 実行中ツールなし・思考中でもない
+    assert not sent  # アイドルプロセスで喋り続けない
+
+
+def test_heartbeat_respects_interval(narrator_mod, narrator, monkeypatch):
+    import time as _time
+    sent = []
+    monkeypatch.setattr(narrator_mod, "_post_say", lambda url, payload, timeout=3.0: sent.append(payload))
+    narrator.set_tool_running("terminal", {"command": "x"})
+    narrator._last_say_ts = _time.monotonic()  # いま発話したばかり
+    narrator._maybe_heartbeat()
+    assert not sent
+
+
+def test_heartbeat_disabled_by_config(narrator_mod, monkeypatch):
+    monkeypatch.setattr(narrator_mod, "_plugin_cfg", lambda: {"heartbeat_enabled": False})
+    n = narrator_mod._Narrator(start_thread=False)
+    sent = []
+    monkeypatch.setattr(narrator_mod, "_post_say", lambda url, payload, timeout=3.0: sent.append(payload))
+    n.set_tool_running("terminal", {"command": "x"})
+    n._maybe_heartbeat()
+    assert not sent
+
+
+def test_pre_hooks_track_running_state(narrator_mod, monkeypatch):
+    n = narrator_mod._Narrator(start_thread=False)
+    monkeypatch.setattr(narrator_mod, "_narrator", n)
+    narrator_mod._on_pre_tool_call(tool_name="terminal", args={"command": "ls"}, session_id="s1")
+    assert n._running_tool["tool"] == "terminal"
+    narrator_mod._on_post_tool_call(tool_name="terminal", args={"command": "ls"}, session_id="s1")
+    assert n._running_tool is None  # 完了でクリア
+    narrator_mod._on_pre_llm_call(session_id="s1")
+    assert n._thinking is True
+    narrator_mod._on_post_llm_call(session_id="s1", assistant_response="done")
+    assert n._thinking is False
+
+
 # --- atexit drain ----------------------------------------------------------------
 
 
