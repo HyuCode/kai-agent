@@ -120,15 +120,93 @@ def test_vscode_close_tab_requires_target(ide, monkeypatch):
     assert "どちらかが必要" in ide.handle_vscode_close_tab({})
 
 
+# --- terminal override（#48 PR-2）----------------------------------------------
+
+
+def test_terminal_falls_back_when_no_tmux(ide, monkeypatch):
+    monkeypatch.setattr(ide, "_tmux_target_exists", lambda t: False)
+    called = {}
+
+    def _fb(args, kw):
+        called["fb"] = args
+        return "FALLBACK"
+
+    monkeypatch.setattr(ide, "_fallback_terminal", _fb)
+    out = ide.handle_terminal({"command": "ls"})
+    assert out == "FALLBACK"
+    assert called["fb"]["command"] == "ls"
+
+
+def test_terminal_complex_mode_falls_back(ide, monkeypatch):
+    monkeypatch.setattr(ide, "_fallback_terminal", lambda args, kw: "FALLBACK")
+    # background/pty/watch_patterns は built-in へ（可視実行の対象外）
+    assert ide.handle_terminal({"command": "sleep 100", "background": True}) == "FALLBACK"
+    assert ide.handle_terminal({"command": "python", "pty": True}) == "FALLBACK"
+
+
+def _wire_visible(ide, monkeypatch, tmp_path, output_text):
+    """可視実行の副作用（ヘルパー ready・出力/マーカー生成）を tmp_path でスタブする。"""
+    out = tmp_path / "out"
+    done = tmp_path / "done"
+    ready = tmp_path / "ready"
+    monkeypatch.setattr(ide, "_TERM_OUT", str(out))
+    monkeypatch.setattr(ide, "_TERM_DONE", str(done))
+    monkeypatch.setattr(ide, "_TERM_READY", str(ready))
+    monkeypatch.setattr(ide, "_tmux_target_exists", lambda t: True)
+    ready.write_text("")  # ヘルパー定義済み扱い
+
+    sent = []
+
+    def _fake_send(target, literal):
+        sent.append(literal)
+        # kai '<cmd>' が送られたら出力/マーカーを生成（実行を擬似）
+        if literal.startswith("kai '"):
+            out.write_text(output_text)
+            done.write_text("KAI_EXIT:0\n")
+
+    monkeypatch.setattr(ide, "_tmux_send", _fake_send)
+    return sent
+
+
+def test_terminal_visible_run_captures_output(ide, monkeypatch, tmp_path):
+    sent = _wire_visible(ide, monkeypatch, tmp_path, "hello\nworld\n")
+    out = ide.handle_terminal({"command": "echo hello"})
+    data = __import__("json").loads(out)
+    assert data["exit_code"] == 0
+    assert "hello" in data["output"] and "world" in data["output"]
+    # 視聴者には kai '...' だけが見える（配管が露出しない）
+    assert any(s == "kai 'echo hello'" for s in sent)
+    assert not any("tee" in s for s in sent)
+
+
+def test_terminal_visible_masks_secrets(ide, monkeypatch, tmp_path):
+    _wire_visible(ide, monkeypatch, tmp_path, "token=ghp_ABCDEFGHIJKLMNOPQRSTUV\n")
+    out = ide.handle_terminal({"command": "cat .netrc"})
+    assert "ghp_ABCDEFGHIJKLMNOPQRSTUV" not in out
+    assert "«redacted»" in out
+
+
+def test_terminal_visible_escapes_single_quotes(ide, monkeypatch, tmp_path):
+    sent = _wire_visible(ide, monkeypatch, tmp_path, "ok\n")
+    ide.handle_terminal({"command": "echo 'hi there'"})
+    # 単一引用符は '\'' にエスケープして kai '...' に包む
+    assert any(s == "kai 'echo '\\''hi there'\\'''" for s in sent)
+
+
 # --- register -------------------------------------------------------------------
 
 
-def test_register_registers_three_tools(ide):
+def test_register_registers_state_tools_and_terminal_override(ide, monkeypatch):
     registered = []
 
     class _Ctx:
         def register_tool(self, **kwargs):
-            registered.append(kwargs["name"])
+            registered.append((kwargs["name"], kwargs.get("override", False)))
 
     ide.register(_Ctx())
-    assert set(registered) == {"vscode_state", "vscode_open", "vscode_close_tab"}
+    names = {n for n, _ in registered}
+    assert {"vscode_state", "vscode_open", "vscode_close_tab"} <= names
+    # terminal は override=True で登録（TERMINAL_SCHEMA が import できる環境のみ）
+    term = [ov for n, ov in registered if n == "terminal"]
+    if term:  # import 可能な環境では override 登録される
+        assert term[0] is True

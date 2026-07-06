@@ -5,22 +5,50 @@
 叩くツールを hermes に登録し、kai が VSCode の状態を読み、ファイルを開く/閉じる
 などの操作を computer_use を使わず高速に行えるようにする。
 
-PR-1（本ファイル）: 状態系ツール（vscode_state / vscode_open / vscode_close_tab）。
-terminal / write_file / patch の override は後続 PR（設計 §10）。
+PR-1: 状態系ツール（vscode_state / vscode_open / vscode_close_tab）。
+PR-2: terminal の override（配信画面の tmux ペインで実際に実行し出力を捕捉）。
 
-配信外（拡張不在）でもツールは失敗しない。ブリッジ不達時は「ブリッジ未接続」を
-返し、kai の作業は止めない（演出は best-effort）。
+配信外（拡張・tmux 不在）でもツールは失敗しない。ブリッジ不達時は縮退メッセージ、
+terminal は built-in へフォールバックし、kai の作業は止めない（演出は best-effort・
+実処理の戻り値は必ず保証）。
 """
 
 from __future__ import annotations
 
 import json
+import os
+import re
+import subprocess
+import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 _PLUGIN_ID = "kai_ide"
 _DEFAULT_BRIDGE = "http://127.0.0.1:8920"
+_DEFAULT_TERM_TARGET = "kai-term"
+# terminal override の可視実行で使う固定パス（hermes は直列実行なので衝突しない）
+_TERM_OUT = "/tmp/kai-term.out"
+_TERM_DONE = "/tmp/kai-term.done"
+_TERM_READY = "/tmp/kai-term.ready"
+
+# 秘匿マスク（kai_trace / narrator と同方針。Codex へ返す出力に適用）
+_TOKEN_PATTERNS = [
+    re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),
+    re.compile(r"gh[posur]_[A-Za-z0-9]{20,}"),
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"xox[baprs]-[A-Za-z0-9\-]{10,}"),
+    re.compile(r"Bearer\s+[A-Za-z0-9._\-]{10,}"),
+]
+
+
+def _mask(text: str) -> str:
+    if not text:
+        return text
+    for pat in _TOKEN_PATTERNS:
+        text = pat.sub("«redacted»", text)
+    return text
 
 
 def _plugin_cfg() -> dict:
@@ -112,6 +140,128 @@ def handle_vscode_close_tab(args: dict | None = None, **_: Any) -> str:
     return f"タブを閉じた: {path}（{res.get('count', 0)} 個）"
 
 
+# --- terminal override（配信画面の tmux ペインで実際に実行）--------------------
+
+
+def _term_target() -> str:
+    return str(_plugin_cfg().get("terminal_target") or _DEFAULT_TERM_TARGET)
+
+
+def _tmux_target_exists(target: str) -> bool:
+    """送信先の tmux セッションが存在するか（無ければ built-in へフォールバック）。"""
+    session = target.split(":", 1)[0].split(".", 1)[0]
+    try:
+        r = subprocess.run(["tmux", "has-session", "-t", session],
+                           capture_output=True, timeout=3)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+# 配管（tee/marker）をペインに映さず、視聴者には `kai '<command>'` だけ見せるための
+# ヘルパー関数。ペインに一度だけ定義する（配信前に流れる・以降は見えない）。
+# 出力は tee でペイン表示 + ファイル捕捉。PIPESTATUS[0] で本体の exit を取る。
+def _helper_def() -> str:
+    return (
+        f"kai(){{ {{ eval \"$1\"; }} 2>&1 | tee {_TERM_OUT}; "
+        f"printf 'KAI_EXIT:%s\\n' \"${{PIPESTATUS[0]}}\" > {_TERM_DONE}; }}; "
+        f"clear; touch {_TERM_READY}"
+    )
+
+
+def _tmux_send(target: str, literal: str) -> None:
+    subprocess.run(["tmux", "send-keys", "-t", target, "-l", literal],
+                   check=True, capture_output=True, timeout=5)
+    subprocess.run(["tmux", "send-keys", "-t", target, "Enter"],
+                   check=True, capture_output=True, timeout=5)
+
+
+def _ensure_helper(target: str) -> None:
+    """kai ヘルパー関数がペインに未定義なら定義する（配管を隠すため。冪等）。"""
+    if os.path.exists(_TERM_READY):
+        return
+    _tmux_send(target, _helper_def())
+    for _ in range(20):
+        if os.path.exists(_TERM_READY):
+            return
+        time.sleep(0.1)
+
+
+def _run_visible(command: str, target: str, timeout: float) -> dict | None:
+    """配信画面の tmux ペインでコマンドを実際に実行し、出力と exit code を捕捉する。
+
+    視聴者には `kai '<command>'` だけが見える（tee/marker の配管はヘルパー関数の
+    中に隠す）。tmux 不在・送信失敗なら None を返し built-in へフォールバック
+    （二重実行しない）。hermes はコマンドを直列実行するため固定パスで衝突しない。
+    """
+    if not _tmux_target_exists(target):
+        return None
+    try:
+        _ensure_helper(target)
+        for f in (_TERM_OUT, _TERM_DONE):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+        # command 内の単一引用符をエスケープして kai '...' で渡す
+        escaped = command.replace("'", "'\\''")
+        _tmux_send(target, f"kai '{escaped}'")
+    except Exception:
+        return None  # 送信失敗 → フォールバック
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if os.path.exists(_TERM_DONE):
+            break
+        time.sleep(0.2)
+    output = ""
+    exit_code: Any = None
+    try:
+        if os.path.exists(_TERM_OUT):
+            output = Path(_TERM_OUT).read_text(encoding="utf-8", errors="replace")
+        if os.path.exists(_TERM_DONE):
+            m = re.search(r"KAI_EXIT:(-?\d+)", Path(_TERM_DONE).read_text(encoding="utf-8"))
+            if m:
+                exit_code = int(m.group(1))
+    except OSError:
+        pass
+    if exit_code is None:
+        # マーカー未出現＝タイムアウト。捕捉できた分を返す（二重実行を避けフォールバックしない）
+        note = f"（{int(timeout)} 秒でまだ完了していない。ペインで実行継続中）"
+        return {"output": _mask(output) + "\n" + note, "exit_code": None, "timed_out": True}
+    return {"output": _mask(output), "exit_code": exit_code}
+
+
+def _fallback_terminal(args: dict, kw: dict) -> str:
+    """built-in terminal ツールへ委譲（配信外・複雑モード・tmux 不在時）。"""
+    try:
+        from tools.terminal_tool import _handle_terminal
+        return _handle_terminal(args, **kw)
+    except Exception as e:
+        return json.dumps({"output": "", "exit_code": None,
+                          "error": f"terminal 実行に失敗: {e}"}, ensure_ascii=False)
+
+
+def handle_terminal(args: dict | None = None, **kw: Any) -> str:
+    """terminal の override。配信中の見える端末で実行、それ以外は built-in。
+
+    可視実行の対象は「単発の前景コマンド」に限る。background / pty / watch_patterns
+    などの高度モードや、tmux ペイン不在（配信外）は built-in に委譲する
+    （設計 vscode-bridge.md §5.2 / §6）。
+    """
+    args = args or {}
+    command = str(args.get("command") or "")
+    enabled = bool(_plugin_cfg().get("enabled", True))
+    complex_mode = bool(args.get("background") or args.get("pty")
+                        or args.get("watch_patterns") or args.get("notify_on_complete"))
+    if not command or not enabled or complex_mode:
+        return _fallback_terminal(args, kw)
+    timeout = float(args.get("timeout") or 180)
+    result = _run_visible(command, _term_target(), timeout)
+    if result is None:
+        return _fallback_terminal(args, kw)  # tmux 不在・送信失敗 → built-in
+    return json.dumps(result, ensure_ascii=False)
+
+
 # --- スキーマ ------------------------------------------------------------------
 
 _STATE_SCHEMA = {
@@ -159,3 +309,21 @@ def register(ctx) -> None:
             description=description,
             emoji=emoji,
         )
+    # terminal の override（配信画面の tmux ペインで実際に実行）。built-in の schema を
+    # そのまま使い、allow_tool_override: true が無ければ登録をスキップ（作業は止めない）。
+    try:
+        from tools.terminal_tool import TERMINAL_SCHEMA
+        ctx.register_tool(
+            name="terminal",
+            toolset="kai_ide",
+            schema=TERMINAL_SCHEMA,
+            handler=handle_terminal,
+            description="配信画面の統合ターミナルで実際にコマンドを実行し出力を捕捉する"
+                        "（見える実行）。高度モード・配信外は built-in へフォールバック。",
+            emoji="⌨️",
+            override=True,
+        )
+    except Exception as e:  # allow_tool_override 未設定 / import 失敗 → 状態系のみで続行
+        import logging
+        logging.getLogger(__name__).info(
+            "kai_ide: terminal override をスキップ（%s）。状態系ツールのみ有効。", e)
