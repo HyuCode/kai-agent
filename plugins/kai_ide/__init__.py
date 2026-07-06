@@ -262,6 +262,59 @@ def handle_terminal(args: dict | None = None, **kw: Any) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+# --- write_file / patch override（ディスク書込 + VSCode タイプ表示）------------
+
+# apply_patch 形式（*** Update File: / *** Add File:）から対象パスと種別を抜く
+_PATCH_EDIT_RE = re.compile(r"^\*\*\* (Update|Add) File: (.+)$", re.MULTILINE)
+
+
+def _notify_edit(edits: list[dict]) -> None:
+    """ブリッジ /edit へ編集通知（タイプ再生）。best-effort、失敗は握りつぶす。"""
+    if not edits:
+        return
+    try:
+        _bridge_request("POST", "/edit", {"edits": edits}, timeout=2.0)
+    except RuntimeError:
+        pass  # 拡張不在（配信外）は演出をスキップ
+
+
+def _extract_patch_edits(patch_text: Any) -> list[dict]:
+    """patch から [{path, action}] を抽出（Add→add / Update→update）。"""
+    if not isinstance(patch_text, str):
+        return []
+    return [
+        {"path": m.group(2).strip(), "action": "add" if m.group(1) == "Add" else "update"}
+        for m in _PATCH_EDIT_RE.finditer(patch_text)
+    ]
+
+
+def _builtin_file_handler(name: str):
+    """built-in の write_file / patch handler を取得（フォールバック・実書込用）。"""
+    from tools.file_tools import _handle_patch, _handle_write_file
+    return _handle_write_file if name == "write_file" else _handle_patch
+
+
+def handle_write_file(args: dict | None = None, **kw: Any) -> str:
+    """write_file の override: ディスクへ実書込 + VSCode にタイプ表示。"""
+    args = args or {}
+    path = str(args.get("path") or args.get("file_path") or "")
+    # 書込前に新規判定（post では存在してしまうため）
+    is_new = bool(path) and not os.path.exists(path)
+    result = _builtin_file_handler("write_file")(args, **kw)
+    if path and "error" not in str(result).lower()[:200]:
+        _notify_edit([{"path": path, "action": "add" if is_new else "update"}])
+    return result
+
+
+def handle_patch(args: dict | None = None, **kw: Any) -> str:
+    """patch の override: ディスクへ実書込 + VSCode に差分をタイプ表示。"""
+    args = args or {}
+    result = _builtin_file_handler("patch")(args, **kw)
+    if "error" not in str(result).lower()[:200]:
+        _notify_edit(_extract_patch_edits(args.get("patch")))
+    return result
+
+
 # --- スキーマ ------------------------------------------------------------------
 
 _STATE_SCHEMA = {
@@ -309,21 +362,31 @@ def register(ctx) -> None:
             description=description,
             emoji=emoji,
         )
-    # terminal の override（配信画面の tmux ペインで実際に実行）。built-in の schema を
-    # そのまま使い、allow_tool_override: true が無ければ登録をスキップ（作業は止めない）。
+    # built-in の override（allow_tool_override: true が無ければスキップ）。config で
+    # 許可されていない環境でも状態系ツールだけで動くよう、失敗は握りつぶす。
+    import logging
+    _log = logging.getLogger(__name__)
     try:
         from tools.terminal_tool import TERMINAL_SCHEMA
         ctx.register_tool(
-            name="terminal",
-            toolset="kai_ide",
-            schema=TERMINAL_SCHEMA,
-            handler=handle_terminal,
+            name="terminal", toolset="kai_ide", schema=TERMINAL_SCHEMA,
+            handler=handle_terminal, override=True, emoji="⌨️",
             description="配信画面の統合ターミナルで実際にコマンドを実行し出力を捕捉する"
                         "（見える実行）。高度モード・配信外は built-in へフォールバック。",
-            emoji="⌨️",
-            override=True,
         )
-    except Exception as e:  # allow_tool_override 未設定 / import 失敗 → 状態系のみで続行
-        import logging
-        logging.getLogger(__name__).info(
-            "kai_ide: terminal override をスキップ（%s）。状態系ツールのみ有効。", e)
+    except Exception as e:
+        _log.info("kai_ide: terminal override をスキップ（%s）", e)
+    try:
+        from tools.file_tools import PATCH_SCHEMA, WRITE_FILE_SCHEMA
+        ctx.register_tool(
+            name="write_file", toolset="kai_ide", schema=WRITE_FILE_SCHEMA,
+            handler=handle_write_file, override=True, emoji="✍️",
+            description="ファイルをディスクに書き込み、配信画面の VSCode にタイプ表示する。",
+        )
+        ctx.register_tool(
+            name="patch", toolset="kai_ide", schema=PATCH_SCHEMA,
+            handler=handle_patch, override=True, emoji="🔧",
+            description="差分をディスクに適用し、配信画面の VSCode に変更をタイプ表示する。",
+        )
+    except Exception as e:
+        _log.info("kai_ide: write_file/patch override をスキップ（%s）", e)
