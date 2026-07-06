@@ -193,6 +193,71 @@ def test_terminal_visible_escapes_single_quotes(ide, monkeypatch, tmp_path):
     assert any(s == "kai 'echo '\\''hi there'\\'''" for s in sent)
 
 
+# --- write_file / patch override（#49 PR-3）------------------------------------
+
+
+def test_extract_patch_edits(ide):
+    patch = (
+        "*** Begin Patch\n"
+        "*** Update File: /a/broadcast.sh\n@@\n-old\n+new\n"
+        "*** Add File: /a/new.md\n+content\n*** End Patch"
+    )
+    edits = ide._extract_patch_edits(patch)
+    assert edits == [
+        {"path": "/a/broadcast.sh", "action": "update"},
+        {"path": "/a/new.md", "action": "add"},
+    ]
+
+
+def test_write_file_writes_and_notifies_update(ide, monkeypatch, tmp_path):
+    existing = tmp_path / "a.py"
+    existing.write_text("old")
+    monkeypatch.setattr(ide, "_builtin_file_handler",
+                        lambda name: lambda args, **kw: '{"success": true}')
+    notified = {}
+    monkeypatch.setattr(ide, "_notify_edit", lambda edits: notified.setdefault("e", edits))
+    out = ide.handle_write_file({"path": str(existing), "content": "new"})
+    assert "success" in out
+    assert notified["e"] == [{"path": str(existing), "action": "update"}]
+
+
+def test_write_file_new_file_notifies_add(ide, monkeypatch, tmp_path):
+    newp = tmp_path / "brand-new.py"  # 存在しない
+    monkeypatch.setattr(ide, "_builtin_file_handler",
+                        lambda name: lambda args, **kw: '{"success": true}')
+    notified = {}
+    monkeypatch.setattr(ide, "_notify_edit", lambda edits: notified.setdefault("e", edits))
+    ide.handle_write_file({"path": str(newp), "content": "x"})
+    assert notified["e"] == [{"path": str(newp), "action": "add"}]
+
+
+def test_write_file_no_notify_on_error(ide, monkeypatch, tmp_path):
+    monkeypatch.setattr(ide, "_builtin_file_handler",
+                        lambda name: lambda args, **kw: '{"error": "permission denied"}')
+    notified = {}
+    monkeypatch.setattr(ide, "_notify_edit", lambda edits: notified.setdefault("e", edits))
+    out = ide.handle_write_file({"path": str(tmp_path / "x.py"), "content": "x"})
+    assert "error" in out
+    assert "e" not in notified  # 書込失敗時はタイプ表示しない
+
+
+def test_patch_applies_and_notifies(ide, monkeypatch):
+    patch = "*** Begin Patch\n*** Update File: /a/x.py\n@@\n-a\n+b\n*** End Patch"
+    monkeypatch.setattr(ide, "_builtin_file_handler",
+                        lambda name: lambda args, **kw: '{"success": true}')
+    notified = {}
+    monkeypatch.setattr(ide, "_notify_edit", lambda edits: notified.setdefault("e", edits))
+    ide.handle_patch({"patch": patch})
+    assert notified["e"] == [{"path": "/a/x.py", "action": "update"}]
+
+
+def test_notify_edit_swallows_bridge_failure(ide, monkeypatch):
+    def _boom(method, path, body=None, timeout=3.0):
+        raise RuntimeError("bridge down")
+    monkeypatch.setattr(ide, "_bridge_request", _boom)
+    ide._notify_edit([{"path": "/a.py", "action": "update"}])  # raise しないこと
+
+
 # --- register -------------------------------------------------------------------
 
 
@@ -206,7 +271,8 @@ def test_register_registers_state_tools_and_terminal_override(ide, monkeypatch):
     ide.register(_Ctx())
     names = {n for n, _ in registered}
     assert {"vscode_state", "vscode_open", "vscode_close_tab"} <= names
-    # terminal は override=True で登録（TERMINAL_SCHEMA が import できる環境のみ）
-    term = [ov for n, ov in registered if n == "terminal"]
-    if term:  # import 可能な環境では override 登録される
-        assert term[0] is True
+    # terminal/write_file/patch は override=True で登録（schema が import できる環境のみ）
+    for tool in ("terminal", "write_file", "patch"):
+        ov = [o for n, o in registered if n == tool]
+        if ov:  # import 可能な環境では override 登録される
+            assert ov[0] is True

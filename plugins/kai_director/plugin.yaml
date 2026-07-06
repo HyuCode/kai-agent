@@ -1,7 +1,0 @@
-name: kai_director
-version: 0.2.0
-description: "kai 配信演出（Issue #8 / #30）。編集を VSCode 拡張へタイピング再生通知し、terminal コマンドをコマンドログへ映す。"
-author: kai
-hooks:
-  - pre_tool_call
-  - post_tool_call
