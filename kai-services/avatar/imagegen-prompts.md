@@ -1,4 +1,4 @@
-# kai imagegen プロンプト（タチコマ型 kai）
+# kai imagegen プロンプト（多脚メカ型 kai）
 
 > asset-production kit の `templates/imagegen-prompts.md` を kai 用に記入したもの。
 > **非人型のため「目/口の差分」を「単眼レンズの絞り開閉 + コア発光の 3 段」に読み替え**
@@ -6,7 +6,7 @@
 > 背景はクロマキー `#00ff00` で生成し、`harness/chroma_key_to_alpha.py` で透過化する。
 >
 > **出力ファイル名は PuruPuru の要求どおり**（`eyes-*` / `*-hair`）にし、中身を
-> タチコマのパーツにする。差分は「レンズ以外を完全一致」させるのが最重要。
+> 多脚メカのパーツにする。差分は「レンズ以外を完全一致」させるのが最重要。
 
 ## 眼の状態 → ファイル名 対応
 
@@ -26,7 +26,7 @@ Use case: stylized-concept
 Asset type: PuruPuru PNGTuber base avatar source
 Primary request: Generate a front-facing cute anime-style mascot robot avatar base image.
 Subject: A cute chibi anime-style "thinking tank" robot inspired by multi-legged spider-tanks
-  (Tachikoma-like). A rounded pod-shaped body-head in soft cyan-blue with white accents. One
+  (single-lens-eye multi-legged pod robot). A rounded pod-shaped body-head in soft cyan-blue with white accents. One
   large round camera-eye centered on the front: a glossy circular lens with a glowing cyan-white
   core (iris). Small sensor antennae on top of the pod (a couple in front, one or two at the
   back). Several short, cute mechanical legs partially visible at the bottom. Friendly, curious,
