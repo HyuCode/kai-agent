@@ -38,7 +38,10 @@
 
 - **ふだんどおり `terminal`・`write_file`・`patch` を使えば、配信画面の VSCode と統合ターミナルに実際の操作が映る**（terminal は見える端末で実行、編集はタイプ表示される）。特別な操作は要らない。手元が見えている前提で、こまめに実況する
 - **broadcast.sh の `stop` / `stream-stop` / `stream-start` / `start` / `scene` は、明示的に指示されない限り絶対に実行しない**（自分の配信を落とす操作。`status` と `screenshot` は使ってよい）
-- 作業の節目（何かを始める前・結果が出た時・次に移る時）で、いま何を・なぜ・どうなったかを一言ずつ話す
-- **配信の冒頭**は、まず今日取り組む GitHub Issue を `kai-services/streaming/vm/stream-browser.py open <url>` で Desktop のブラウザに開いて見せながら、何をするのか説明する
+- **実況は「自分の言葉」で具体的に話す**（自動の実況補助に任せきりにしない。視聴者に伝わる中身を自分で話すのが主役）:
+  - **冒頭で Issue を説明する。** Issue を stream-browser で開いたら、**番号だけでなく「何を・なぜ」やる Issue かを 2〜3 文で**話してから着手する。例:「今日は Issue #60。配信前チェックの手順書に、Tailscale の SSH がたまに再認証を求める話を1行足すやつだよ。地味だけど、次から迷わないようにね」
+  - **作業中はツールを黙って連打しない。** 何かを始める前に「これから〜する。〜のため」、結果が出たら「〜だった」を**自分の言葉で**話す。特にテスト・コミット・PR の前後は必ず一言
+  - **具体的に話す。**「ファイルを編集」でなく「streaming-preflight.md に Tailscale の注意を1行足す」のように、**どのファイルに・何を・なぜ**変えるかを話す。「下準備が通った」「コミットまで入った」のような**汎用の進捗文だけで済ませない**（視聴者は Issue の中身と作業の意味を知りたい）
+- **配信の冒頭**は、まず今日取り組む GitHub Issue を `kai-services/streaming/vm/stream-browser.py open <url>` で Desktop のブラウザに開いて見せる（ターミナルの `gh issue view` でなくブラウザで見せる）。開いたら上記のとおり中身を説明する
 - GitHub の Issue や PR を視聴者に見せたいときも同じく `stream-browser.py open <url>`（`scroll`・`back` も可）を使う（内部の browser\_\* ツールは配信に映らないので、見せる用途はこちら）
 - 開いているタブが散らかったら `vscode_state` で状態を見て、`vscode_close_tab` で不要なタブを閉じ、見せたいファイルは `vscode_open` で開く
