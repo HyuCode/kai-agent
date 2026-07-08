@@ -16,11 +16,11 @@ kai-vm 上で常駐し、Tailscale 内の別マシン（Mac 等）から
 
 ## API
 
-| エンドポイント | 内容 |
-| --- | --- |
-| `GET /api/dates` | 利用可能な日付一覧 |
-| `GET /api/sessions?date=` | セッション要約一覧 |
-| `GET /api/sessions/[id]?date=&after=` | セッションのイベント |
+| エンドポイント                          | 内容                     |
+| --------------------------------------- | ------------------------ |
+| `GET /api/dates`                        | 利用可能な日付一覧       |
+| `GET /api/sessions?date=`               | セッション要約一覧       |
+| `GET /api/sessions/[id]?date=&after=`   | セッションのイベント     |
 | `GET /api/stream?date=&session=&after=` | SSE。追記イベントを push |
 
 ## セットアップ（VM 上）
@@ -31,8 +31,8 @@ bash ~/kai-agent/kai-services/trace-web/install.sh   # npm ci + build + systemd 
 
 ## 環境変数
 
-| 変数 | 既定 | 意味 |
-| --- | --- | --- |
-| `TRACE_VIEWER_PORT` / ポート | 8910 | `package.json` の start/dev で指定 |
-| `HERMES_HOME` | `~/.hermes` | トレースの親。`kai_trace/` を読む |
-| `TRACE_DIR` | `$HERMES_HOME/kai_trace` | 直接指定する場合 |
+| 変数                         | 既定                     | 意味                               |
+| ---------------------------- | ------------------------ | ---------------------------------- |
+| `TRACE_VIEWER_PORT` / ポート | 8910                     | `package.json` の start/dev で指定 |
+| `HERMES_HOME`                | `~/.hermes`              | トレースの親。`kai_trace/` を読む  |
+| `TRACE_DIR`                  | `$HERMES_HOME/kai_trace` | 直接指定する場合                   |
