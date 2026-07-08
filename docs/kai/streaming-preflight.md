@@ -20,6 +20,8 @@
 
 - [ ] **VM の speechd / koe-bridge の health が緑であること。** speechd は発話 API、
       koe-bridge は Mac TTS への橋渡しなので、両方が生きていることを確認する。
+      Tailscale SSH の定期再認証で `Tailscale SSH requires an additional check` と
+      認証 URL が出た場合は、URL の認証を通してからチェックを続ける。
 
   ```bash
   curl -fsS http://127.0.0.1:8900/health
