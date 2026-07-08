@@ -1,0 +1,267 @@
+{
+  "fixture": "issue65-confabulation.jsonl",
+  "mode": "recorded",
+  "source": "narrator",
+  "scores": {
+    "n_utterances": 7,
+    "FR1_person": {
+      "violations": 0,
+      "pass": true,
+      "detail": "3人称語/禁止一人称の出現数（0 が合格）"
+    },
+    "FR5_id_leak": {
+      "violations": 3,
+      "by_pattern": {
+        "raw_ref": 2,
+        "branch_slug": 1
+      },
+      "pass": false,
+      "detail": "内部ID/生データ漏れの出現数（0 が合格）"
+    },
+    "FR6_repetition": {
+      "repetitive_utterances": 1,
+      "rate": 0.143,
+      "detail": "直近3発話との bigram/文末重複率（低いほど良い）"
+    },
+    "FR7_operation_only": {
+      "operation_only_utterances": 1,
+      "rate": 0.143,
+      "detail": "理由/結果/感情/間投詞を含まない発話の割合（低いほど良い）"
+    },
+    "FR9_length": {
+      "avg_chars": 58.0,
+      "min_chars": 37,
+      "max_chars": 66,
+      "out_of_range": 0,
+      "target_range": [
+        20,
+        80
+      ],
+      "detail": "1発話の文字数（20〜80字目安）"
+    },
+    "confabulation": {
+      "flagged": true,
+      "session_tokens": {
+        "ズレ": 3
+      },
+      "token_utterances": {
+        "ズレ": [
+          0,
+          2,
+          4
+        ]
+      },
+      "detail": "接地(args/Issue本文/結果)に無い語が複数発話で反復 → confabulation の疑い"
+    },
+    "composite": 33
+  },
+  "worst": [
+    {
+      "idx": 0,
+      "penalty": 30.0,
+      "text": "Issue #65 をブラウザと gh で見比べて、差分のズレを洗い出すよ",
+      "reasons": [
+        "FR5 ID漏れ: raw_ref=Issue #65",
+        "confabulation(接地外語が反復): ズレ",
+        "FR7 操作説明のみ（理由/結果/感情なし）"
+      ]
+    },
+    {
+      "idx": 4,
+      "penalty": 20.0,
+      "text": "verify.sh が通ったから、streaming-preflight.md の修正でズレの原因をちゃんと外せたよ",
+      "reasons": [
+        "confabulation(接地外語が反復): ズレ",
+        "FR6 反復(jaccard=0.521)"
+      ]
+    },
+    {
+      "idx": 1,
+      "penalty": 16.0,
+      "text": "ブラウザ操作を安定させるために websocket-client を入れ直して、Issue #65 の表示ずれを詰める準備ができたよ",
+      "reasons": [
+        "FR5 ID漏れ: raw_ref=Issue #65"
+      ]
+    },
+    {
+      "idx": 2,
+      "penalty": 12.0,
+      "text": "patch が当たらなかったから、streaming-preflight.md の修正方針を組み直してズレの元を潰すよ",
+      "reasons": [
+        "confabulation(接地外語が反復): ズレ"
+      ]
+    },
+    {
+      "idx": 6,
+      "penalty": 10.0,
+      "text": "feature/streaming-post-cleanup-doc を origin に送れたから、PR を見られる状態になったよ",
+      "reasons": [
+        "FR5 ID漏れ: branch_slug=feature/streaming-post-cleanup-doc"
+      ]
+    }
+  ],
+  "per_utterance": [
+    {
+      "idx": 0,
+      "phase": "kickoff",
+      "source": "narrator",
+      "text": "Issue #65 をブラウザと gh で見比べて、差分のズレを洗い出すよ",
+      "chars": 37,
+      "fr1": [],
+      "fr5": [
+        [
+          "raw_ref",
+          "Issue #65"
+        ]
+      ],
+      "operation_only": true,
+      "fr6": {
+        "bigram_jaccard": 0.0,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "洗い出すよ"
+      },
+      "confab_tokens": [
+        "見比",
+        "差分",
+        "ズレ"
+      ],
+      "strong_confab": [
+        "ズレ"
+      ]
+    },
+    {
+      "idx": 1,
+      "phase": "work",
+      "source": "narrator",
+      "text": "ブラウザ操作を安定させるために websocket-client を入れ直して、Issue #65 の表示ずれを詰める準備ができたよ",
+      "chars": 66,
+      "fr1": [],
+      "fr5": [
+        [
+          "raw_ref",
+          "Issue #65"
+        ]
+      ],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.134,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "ができたよ"
+      },
+      "confab_tokens": [
+        "操作",
+        "安定",
+        "表示"
+      ],
+      "strong_confab": []
+    },
+    {
+      "idx": 2,
+      "phase": "work",
+      "source": "narrator",
+      "text": "patch が当たらなかったから、streaming-preflight.md の修正方針を組み直してズレの元を潰すよ",
+      "chars": 59,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.036,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "元を潰すよ"
+      },
+      "confab_tokens": [
+        "修正方針",
+        "ズレ"
+      ],
+      "strong_confab": [
+        "ズレ"
+      ]
+    },
+    {
+      "idx": 3,
+      "phase": "work",
+      "source": "narrator",
+      "text": "verify.sh が通ったから、streaming-preflight.md の直しはひとまず狙いどおり進んでるよ",
+      "chars": 58,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.346,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "進んでるよ"
+      },
+      "confab_tokens": [],
+      "strong_confab": []
+    },
+    {
+      "idx": 4,
+      "phase": "work",
+      "source": "narrator",
+      "text": "verify.sh が通ったから、streaming-preflight.md の修正でズレの原因をちゃんと外せたよ",
+      "chars": 58,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.521,
+        "repetitive": true,
+        "dup_ending": false,
+        "ending": "と外せたよ"
+      },
+      "confab_tokens": [
+        "ズレ"
+      ],
+      "strong_confab": [
+        "ズレ"
+      ]
+    },
+    {
+      "idx": 5,
+      "phase": "work",
+      "source": "narrator",
+      "text": "streaming-preflight.md を add して commit まで入ったから、修正内容をひとまとめに残せたよ",
+      "chars": 62,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.333,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "に残せたよ"
+      },
+      "confab_tokens": [
+        "修正内容"
+      ],
+      "strong_confab": []
+    },
+    {
+      "idx": 6,
+      "phase": "summary",
+      "source": "narrator",
+      "text": "feature/streaming-post-cleanup-doc を origin に送れたから、PR を見られる状態になったよ",
+      "chars": 66,
+      "fr1": [],
+      "fr5": [
+        [
+          "branch_slug",
+          "feature/streaming-post-cleanup-doc"
+        ]
+      ],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.183,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "になったよ"
+      },
+      "confab_tokens": [],
+      "strong_confab": []
+    }
+  ]
+}

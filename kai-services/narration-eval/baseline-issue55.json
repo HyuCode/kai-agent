@@ -1,0 +1,268 @@
+{
+  "fixture": "issue55-baseline-good.jsonl",
+  "mode": "recorded",
+  "source": "narrator",
+  "scores": {
+    "n_utterances": 9,
+    "FR1_person": {
+      "violations": 0,
+      "pass": true,
+      "detail": "3人称語/禁止一人称の出現数（0 が合格）"
+    },
+    "FR5_id_leak": {
+      "violations": 2,
+      "by_pattern": {
+        "todo_id": 1,
+        "raw_ref": 1
+      },
+      "pass": false,
+      "detail": "内部ID/生データ漏れの出現数（0 が合格）"
+    },
+    "FR6_repetition": {
+      "repetitive_utterances": 2,
+      "rate": 0.222,
+      "detail": "直近3発話との bigram/文末重複率（低いほど良い）"
+    },
+    "FR7_operation_only": {
+      "operation_only_utterances": 2,
+      "rate": 0.222,
+      "detail": "理由/結果/感情/間投詞を含まない発話の割合（低いほど良い）"
+    },
+    "FR9_length": {
+      "avg_chars": 31.2,
+      "min_chars": 25,
+      "max_chars": 38,
+      "out_of_range": 0,
+      "target_range": [
+        20,
+        80
+      ],
+      "detail": "1発話の文字数（20〜80字目安）"
+    },
+    "confabulation": {
+      "flagged": false,
+      "session_tokens": {},
+      "token_utterances": {},
+      "detail": "接地(args/Issue本文/結果)に無い語が複数発話で反復 → confabulation の疑い"
+    },
+    "composite": 72
+  },
+  "worst": [
+    {
+      "idx": 3,
+      "penalty": 20.0,
+      "text": "issue55-verify が終わったから、次はまとめて戻せるか見ていくよ",
+      "reasons": [
+        "FR5 ID漏れ: todo_id=issue55-verify, raw_ref=issue55"
+      ]
+    },
+    {
+      "idx": 0,
+      "penalty": 8.0,
+      "text": "verify.sh の中身を見て、テストの入口をつかむよ。",
+      "reasons": [
+        "FR7 操作説明のみ（理由/結果/感情なし）"
+      ]
+    },
+    {
+      "idx": 1,
+      "penalty": 8.0,
+      "text": "変更がないか見て、次に安全に試せる状態か確かめるよ",
+      "reasons": [
+        "FR7 操作説明のみ（理由/結果/感情なし）"
+      ]
+    },
+    {
+      "idx": 5,
+      "penalty": 8.0,
+      "text": "リモートへ上げられたから、みんなが同じ変更を追えるようになったよ",
+      "reasons": [
+        "FR6 反復(jaccard=0.132,文末重複)"
+      ]
+    },
+    {
+      "idx": 6,
+      "penalty": 8.0,
+      "text": "PR を切ったから、変更点をひと目で追える形にできたよ",
+      "reasons": [
+        "FR6 反復(jaccard=0.31,文末重複)"
+      ]
+    }
+  ],
+  "per_utterance": [
+    {
+      "idx": 0,
+      "phase": "kickoff",
+      "source": "narrator",
+      "text": "verify.sh の中身を見て、テストの入口をつかむよ。",
+      "chars": 29,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": true,
+      "fr6": {
+        "bigram_jaccard": 0.0,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "をつかむよ"
+      },
+      "confab_tokens": [],
+      "strong_confab": []
+    },
+    {
+      "idx": 1,
+      "phase": "work",
+      "source": "narrator",
+      "text": "変更がないか見て、次に安全に試せる状態か確かめるよ",
+      "chars": 25,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": true,
+      "fr6": {
+        "bigram_jaccard": 0.041,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "確かめるよ"
+      },
+      "confab_tokens": [],
+      "strong_confab": []
+    },
+    {
+      "idx": 2,
+      "phase": "work",
+      "source": "narrator",
+      "text": "verify.sh が通ったから、次の確認に進める状態になったよ",
+      "chars": 32,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.167,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "になったよ"
+      },
+      "confab_tokens": [],
+      "strong_confab": []
+    },
+    {
+      "idx": 3,
+      "phase": "work",
+      "source": "narrator",
+      "text": "issue55-verify が終わったから、次はまとめて戻せるか見ていくよ",
+      "chars": 38,
+      "fr1": [],
+      "fr5": [
+        [
+          "todo_id",
+          "issue55-verify"
+        ],
+        [
+          "raw_ref",
+          "issue55"
+        ]
+      ],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.182,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "見ていくよ"
+      },
+      "confab_tokens": [],
+      "strong_confab": []
+    },
+    {
+      "idx": 4,
+      "phase": "work",
+      "source": "narrator",
+      "text": "まとめのコミットを切ったから、これで変更をひと区切りにできたよ",
+      "chars": 31,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.1,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "にできたよ"
+      },
+      "confab_tokens": [
+        "コミット",
+        "区切"
+      ],
+      "strong_confab": []
+    },
+    {
+      "idx": 5,
+      "phase": "work",
+      "source": "narrator",
+      "text": "リモートへ上げられたから、みんなが同じ変更を追えるようになったよ",
+      "chars": 32,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.132,
+        "repetitive": true,
+        "dup_ending": true,
+        "ending": "になったよ"
+      },
+      "confab_tokens": [],
+      "strong_confab": []
+    },
+    {
+      "idx": 6,
+      "phase": "work",
+      "source": "narrator",
+      "text": "PR を切ったから、変更点をひと目で追える形にできたよ",
+      "chars": 27,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.31,
+        "repetitive": true,
+        "dup_ending": true,
+        "ending": "にできたよ"
+      },
+      "confab_tokens": [],
+      "strong_confab": []
+    },
+    {
+      "idx": 7,
+      "phase": "work",
+      "source": "narrator",
+      "text": "PR を開いたまま見られるから、みんなが変更点を確認しやすくなったよ",
+      "chars": 34,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.212,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "くなったよ"
+      },
+      "confab_tokens": [],
+      "strong_confab": []
+    },
+    {
+      "idx": 8,
+      "phase": "work",
+      "source": "narrator",
+      "text": "PR の中身を固めるために検証したよ、これで安全に次へ進めそうだね",
+      "chars": 33,
+      "fr1": [],
+      "fr5": [],
+      "operation_only": false,
+      "fr6": {
+        "bigram_jaccard": 0.037,
+        "repetitive": false,
+        "dup_ending": false,
+        "ending": "めそうだね"
+      },
+      "confab_tokens": [],
+      "strong_confab": []
+    }
+  ]
+}
