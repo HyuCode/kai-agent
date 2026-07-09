@@ -144,3 +144,6 @@ apps/desktop/demo/
 # pr-infographic-workflow reference (storage rule + lapse #8 / #COMMIT-1).
 infographic/
 kai-services/avatar/preview/
+
+# オーナーがリハーサルの気づきを Claude に伝えるためのローカルメモ（リポジトリ管理外）
+docs/kai/stream-review/
