@@ -14,6 +14,7 @@ aquestalk-server 側では `.env` に次を設定する。
 
 ```bash
 KOE_LLM_BASE_URL=http://<kai-vm の Tailscale IP>:8930/v1
+KOE_LLM_API_KEY=<KOE_BRIDGE_TOKEN と同じ値>
 ```
 
 ## 依存
@@ -41,14 +42,19 @@ bash ~/kai-agent/kai-services/koe-bridge/install.sh
 
 ## 環境変数
 
-| 変数              | デフォルト | 意味                                          |
-| ----------------- | ---------- | --------------------------------------------- |
-| `KOE_BRIDGE_PORT` | `8930`     | HTTP サーバーの listen ポート                 |
-| `KOE_BRIDGE_BIND` | `0.0.0.0`  | HTTP サーバーの bind アドレス                 |
-| `KOE_BRIDGE_TASK` | `koe`      | `call_llm(task=...)` に渡す auxiliary task 名 |
+| 変数               | デフォルト  | 意味                                                             |
+| ------------------ | ----------- | ---------------------------------------------------------------- |
+| `KOE_BRIDGE_PORT`  | `8930`      | HTTP サーバーの listen ポート                                    |
+| `KOE_BRIDGE_BIND`  | `127.0.0.1` | HTTP サーバーの bind アドレス                                    |
+| `KOE_BRIDGE_TASK`  | `koe`       | `call_llm(task=...)` に渡す auxiliary task 名                    |
+| `KOE_BRIDGE_TOKEN` | （空）      | 共有トークン。設定時 POST は `Authorization: Bearer <値>` を照合 |
 
-`koe-bridge.service` は `KOE_BRIDGE_PORT=8930`、`KOE_BRIDGE_BIND=0.0.0.0` を設定する。
-`KOE_BRIDGE_TASK` は service では指定していないため、実装の既定値 `koe` になる。
+**認証（Issue #77 C1）**: このサーバーはオーナー課金の LLM への汎用リレーなので、
+非 loopback bind（Tailscale 越し利用）には `KOE_BRIDGE_TOKEN` が必須。トークン無しで
+`KOE_BRIDGE_BIND` を loopback 以外にすると起動を拒否する（fail-closed）。トークンは
+unit に直書きせず `~/.config/kai/koe-bridge.env` に置き、`EnvironmentFile` で読む
+（`koe-bridge.service` のコメント参照）。Tailscale ACL で 8930 を Mac ノード限定に
+するのを推奨（多層防御）。
 
 ## API
 
@@ -143,6 +149,6 @@ systemctl --user stop koe-bridge.service
 - 対応している生成 API は `POST /v1/chat/completions` と `/chat/completions` のみ
 - ストリーミング応答は実装していない
 - `GET /health` 以外の GET は `404` を返す
-- 既定 bind は `0.0.0.0`。`koe_bridge.py` の docstring では Tailscale / UTM NAT 内のみ、
-  公開ポートなしの前提としている
+- 既定 bind は `127.0.0.1`（loopback）。Tailscale 越しに使う場合は
+  `KOE_BRIDGE_BIND` を広げ、`KOE_BRIDGE_TOKEN` を必ず設定する
 - `log_message()` は何もしないため、`http.server` の通常アクセスログは出さない
