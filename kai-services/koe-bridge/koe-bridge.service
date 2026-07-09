@@ -8,7 +8,12 @@ Wants=network-online.target
 [Service]
 WorkingDirectory=@REPO_DIR@
 Environment=KOE_BRIDGE_PORT=8930
-Environment=KOE_BRIDGE_BIND=0.0.0.0
+# 既定は 127.0.0.1（loopback）。Tailscale 越しに使う場合は bind を広げ、
+# 共有トークンを必ず設定する（トークン無しの非 loopback bind は起動拒否）。
+# トークンは unit に直書きせず EnvironmentFile に置く（Issue #77 C1）:
+#   ~/.config/kai/koe-bridge.env に KOE_BRIDGE_TOKEN=<ランダム値> を書く
+# Environment=KOE_BRIDGE_BIND=0.0.0.0
+# EnvironmentFile=%h/.config/kai/koe-bridge.env
 ExecStart=@REPO_DIR@/.venv/bin/python3 @REPO_DIR@/kai-services/koe-bridge/koe_bridge.py
 Restart=on-failure
 RestartSec=2

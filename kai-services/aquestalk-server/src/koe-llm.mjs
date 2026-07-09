@@ -137,6 +137,7 @@ export function buildSystemPrompt({ version = "v1", text = "", terms = {} } = {}
  * @param {string} [config.promptVersion]
  * @param {Record<string, string>} [config.terms] 例外辞書
  * @param {string} [config.referenceKana] v2 用: ルールベース変換の下書き（参考よみ）
+ * @param {string} [config.apiKey] koe-bridge の共有トークン（Authorization: Bearer で送る）
  * @param {typeof fetch} [config.fetchImpl] テスト用の fetch 差し替え
  * @returns {Promise<string>} LLM の生出力（sanitize 前）
  */
@@ -148,6 +149,7 @@ export async function generateKoeLlm(text, config) {
     promptVersion = "v2",
     terms = {},
     referenceKana = "",
+    apiKey = "",
     fetchImpl = fetch,
   } = config;
 
@@ -161,7 +163,11 @@ export async function generateKoeLlm(text, config) {
   try {
     const res = await fetchImpl(`${baseUrl}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        // koe-bridge の共有トークン認証（Issue #77 C1）。未設定なら付けない
+        ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      },
       body: JSON.stringify({
         model,
         temperature: 0,

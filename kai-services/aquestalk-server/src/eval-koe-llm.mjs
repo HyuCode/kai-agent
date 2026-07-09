@@ -42,6 +42,7 @@ const config = {
   baseUrl,
   model: process.env.KOE_LLM_MODEL ?? "qwen3.6-35b-a3b",
   timeoutMs: Number(process.env.KOE_LLM_TIMEOUT_MS ?? 10000), // 評価時は長めに取り実レイテンシを観測する
+  apiKey: process.env.KOE_LLM_API_KEY ?? "",
   promptVersion: process.env.KOE_PROMPT_VERSION ?? "v2",
   terms: JSON.parse(
     readFileSync(new URL("./technical-terms.json", import.meta.url), "utf-8"),

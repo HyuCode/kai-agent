@@ -456,6 +456,7 @@ function llmConfigFromEnv() {
     model: process.env.KOE_LLM_MODEL ?? "qwen3.6-35b-a3b",
     timeoutMs: Number(process.env.KOE_LLM_TIMEOUT_MS ?? 2500),
     promptVersion: process.env.KOE_PROMPT_VERSION ?? "v2",
+    apiKey: process.env.KOE_LLM_API_KEY ?? "", // koe-bridge の共有トークン（#77 C1）
   };
 }
 
