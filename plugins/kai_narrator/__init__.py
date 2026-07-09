@@ -549,6 +549,57 @@ def _too_similar(text: str, recent: list[str], threshold: float = 0.5) -> bool:
     return False
 
 
+# 冒頭の間投詞（「お、」「よし、」等: 短いかな列＋読点/感嘆符）。
+_OPENER_RE = re.compile(r"^([ぁ-ゖァ-ヺー]{1,4})[、!！]")
+
+
+# ローテート先の間投詞（成功/中立の文頭で入れ替え可能なもの。narration-eval の
+# INTERJECTIONS リパートリー内から）。文脈依存の強い否定系（あー／あれ？等）は
+# 入れ替えると感情が捻じれるため対象外。
+_OPENER_ROTATION = ["お", "よし", "へえ", "なるほど"]
+
+
+def _derepeat_opener(text: str, recent: list[str]) -> str:
+    """口調ゲート（#98）: 直近実況と同じ冒頭間投詞なら、別の間投詞に入れ替える。
+
+    冒頭2文字は文全体の bigram 類似（_too_similar）にほぼ寄与しないため、
+    「お、」始まりの連発は反復ゲートを素通りする（第5回リハーサルで実測）。
+    削除でなく入れ替えなのは、間投詞が感情リアクション（FR7）を担っているため
+    （削除で narration-eval が回帰することを実測済み）。プロンプトへの指示追加も
+    eval で回帰した（1文の追記でも小型 LLM の生成軌道が丸ごと変わる）ため、
+    対策はこの後処理ゲートのみで行う。ローテート先が尽きたら剥がす。
+    """
+    m = _OPENER_RE.match(text or "")
+    if not m:
+        return text
+    opener = m.group(1)
+    if opener not in _OPENER_ROTATION:
+        return text
+    recent_openers = set()
+    for prev in (recent or [])[-3:]:
+        pm = _OPENER_RE.match(prev or "")
+        if pm:
+            recent_openers.add(pm.group(1))
+    if opener not in recent_openers:
+        return text
+    for alt in _OPENER_ROTATION:
+        if alt != opener and alt not in recent_openers:
+            return alt + text[len(opener):]
+    stripped = text[m.end():].lstrip()
+    return stripped or text
+
+
+# 観客調の相槌語尾（「〜したんだね」）。一人称の自己実況では自分の行動への
+# 他人事の相槌になる（#98）。過去形（た/だ）直後の文末だけを言い切りに直し、
+# 「エラーなんだね」（名詞+なんだね）等は触らない。
+_BYSTANDER_TAIL_RE = re.compile(r"(?<=[ただ])んだね(?=[。！!]?$)")
+
+
+def _rewrite_bystander_tail(text: str) -> str:
+    """口調ゲート（#98）: 文末の「〜たんだね」を「〜たよ」に言い切る。"""
+    return _BYSTANDER_TAIL_RE.sub("よ", text or "")
+
+
 # --- kickoff（配信冒頭の Issue 説明。FR8 / Issue #72）---------------------------
 
 # 当日タスク（最初のユーザーメッセージ＝SOUL.md 経由の Issue 説明等）を材料に、
@@ -556,7 +607,8 @@ def _too_similar(text: str, recent: list[str], threshold: float = 0.5) -> bool:
 # フィラーを出さず沈黙する（_had_tool_activity ゲートと同思想）。
 _KICKOFF_SYSTEM_PROMPT = (
     "あなたはライブコーディング配信中の AI「kai」本人。これから作業配信を始める。"
-    "一人称は「ボク」、視聴者は「みんな」。\n"
+    "一人称は「ボク」、視聴者は「みんな」。語り口はふだんの実況と同じ常体"
+    "（〜だよ／〜だね／〜するね）。です・ます調にしない。\n"
     "<task> はボクがこれから取り組む今日のタスクの説明。これだけを根拠に、配信の"
     "冒頭あいさつとして『今日は何をするか』と『なぜやるか』を、プログラミングに"
     "詳しくない人にも伝わる言葉で 2〜3 文・全体で 60〜160 文字で話す。\n"
@@ -744,6 +796,9 @@ class _Narrator:
         self._context: str = ""  # kai 自身の直近宣言（いまの作業。視聴者の文脈維持用）
         self._pending_intent: str = ""  # 直近の assistant テキスト（＝なぜやるか。接地材料）
         self._recent_narrations: "deque[str]" = deque(maxlen=3)  # 繰り返し禁止の材料
+        # 実際に発話した文（口調ゲート適用後）。間投詞ローテートの判定は
+        # 「視聴者が聞いた列」で行う — 原文基準だと入れ替え先がまた重複する
+        self._recent_spoken: "deque[str]" = deque(maxlen=3)
         self._flagship_pending: bool = False  # 旗艦イベントが来た → 間隔を無視して即実況
         self._narrate_backoff_until: float = 0.0  # 生成失敗後の再試行抑制（連打防止）
         # kickoff（FR8 / Issue #72）: 当日タスクの説明を配信冒頭に一度だけ話す
@@ -969,8 +1024,16 @@ class _Narrator:
             return
         if _too_similar(text, recent):
             return
-        self._say(text, source="narrator", priority="low", session_id=session_id)
+        # 口調ゲート（#98）: 発話だけ整える（間投詞の反復をローテート、観客調の
+        # 相槌語尾を言い切りに直す）。_recent_narrations には原文を保持する —
+        # 整形後の文を LLM に戻すと <recent> 経由で以降の生成軌道が丸ごと変わり、
+        # narration-eval の回帰比較が壊れる（eval 実測で確認済み）。間投詞の判定は
+        # 視聴者が実際に聞いた列（_recent_spoken）で行う。
+        spoken = _rewrite_bystander_tail(
+            _derepeat_opener(text, list(self._recent_spoken)))
+        self._say(spoken, source="narrator", priority="low", session_id=session_id)
         self._recent_narrations.append(text)
+        self._recent_spoken.append(spoken)
 
     def _consume_events(self, pending: list) -> None:
         """生成に使った分（スナップショット時点のイベント）だけ取り除き、
@@ -1022,9 +1085,12 @@ class _Narrator:
                 tool = str(running.get("tool") or "コマンド")
                 text = f"いま {tool} の完了を待ってるよ。もう {elapsed_s} 秒くらい経ったかな"
             if text and not _is_skip(text):
-                self._say(text, source="narrator", priority="low",
+                spoken = _rewrite_bystander_tail(
+                    _derepeat_opener(text, list(self._recent_spoken)))
+                self._say(spoken, source="narrator", priority="low",
                           session_id=str(running.get("session_id") or ""))
                 self._recent_narrations.append(text)
+                self._recent_spoken.append(spoken)
             return
 
         if thinking and had_activity:
