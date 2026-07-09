@@ -822,6 +822,57 @@ def test_maybe_narrate_drops_ungrounded_and_repetitive(narrator_mod, narrator, m
     assert not sent
 
 
+def test_derepeat_opener(narrator_mod):
+    recent = ["お、パッチ当たったよ。次は検証器だね"]
+    # 直近と同じ間投詞 → 未使用の間投詞にローテート（内容と読点は残す）
+    assert narrator_mod._derepeat_opener("お、テスト通ったよ", recent) == "よし、テスト通ったよ"
+    # 違う間投詞・間投詞なし → そのまま
+    assert narrator_mod._derepeat_opener("よし、テスト通ったよ", recent) == "よし、テスト通ったよ"
+    assert narrator_mod._derepeat_opener("テスト通ったよ", recent) == "テスト通ったよ"
+    # 否定系の間投詞（あー等）はローテート対象外 — 感情が捻じれるため
+    assert narrator_mod._derepeat_opener("あー、また赤いな", ["あー、赤いな"]) == "あー、また赤いな"
+    # ローテート先が尽きたら剥がす
+    exhausted = ["よし、A したよ", "へえ、B なんだ", "なるほど、C か"]
+    assert narrator_mod._derepeat_opener("よし、D したよ", exhausted) == "お、D したよ"
+    exhausted4 = ["お、A したよ", "よし、B したよ", "へえ、C なんだ"]
+    assert narrator_mod._derepeat_opener(
+        "お、D したよ", exhausted4) == "なるほど、D したよ"
+    # 間投詞に見えない長い書き出し（5文字以上）は対象外
+    assert narrator_mod._derepeat_opener(
+        "なるほどねえ、そういうことか", ["なるほどねえ、そうだった"]) == "なるほどねえ、そういうことか"
+    # recent が空なら何もしない
+    assert narrator_mod._derepeat_opener("お、テスト通ったよ", []) == "お、テスト通ったよ"
+
+
+def test_rewrite_bystander_tail(narrator_mod):
+    # 過去形＋文末の「んだね」→ 言い切り
+    assert narrator_mod._rewrite_bystander_tail("コミットまで進めたんだね") == "コミットまで進めたよ"
+    assert narrator_mod._rewrite_bystander_tail("テストが進んだんだね。") == "テストが進んだよ。"
+    # 名詞＋なんだね（相槌でなく納得）は触らない
+    assert narrator_mod._rewrite_bystander_tail("原因はエラーなんだね") == "原因はエラーなんだね"
+    # 「読んだね」（既に言い切り）は触らない
+    assert narrator_mod._rewrite_bystander_tail("README を読んだね") == "README を読んだね"
+    # 文中の「んだね」は触らない（文末のみ）
+    assert narrator_mod._rewrite_bystander_tail("通ったんだね、と思ったけど違った") == "通ったんだね、と思ったけど違った"
+
+
+def test_maybe_narrate_derepeats_opener(narrator_mod, narrator, monkeypatch):
+    sent = []
+    monkeypatch.setattr(narrator_mod, "_post_say", lambda url, payload, timeout=3.0: sent.append(payload))
+    narrator._recent_narrations.append("お、ブランチを切ったよ")
+    narrator._recent_spoken.append("お、ブランチを切ったよ")
+    monkeypatch.setattr(narrator_mod, "_generate_narration",
+                        lambda events, **kw: "お、pytest が通ったよ")
+    narrator.push_tool_event({"tool": "terminal", "args": {"command": "pytest"},
+                              "intent": "テストを通す", "result_digest": "pytest 12 passed"})
+    narrator._maybe_narrate()
+    assert len(sent) == 1
+    # 発話は別間投詞にローテート
+    assert sent[0]["text"] == "よし、pytest が通ったよ"
+    # recent には原文を保持する（LLM に渡す <recent> を変えず生成軌道を保つ）
+    assert narrator._recent_narrations[-1] == "お、pytest が通ったよ"
+
+
 def test_heartbeat_ungrounded_falls_back_to_template(narrator_mod, narrator, monkeypatch):
     # 実行中スナップショットの接地外生成は、無音でなく常に正しい定型文に落とす
     sent = []

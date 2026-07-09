@@ -136,6 +136,7 @@ def generate(plugin, ops) -> list[dict]:
     pending: list[dict] = []
     context = ""
     recent: list[str] = []
+    recent_spoken: list[str] = []
     for op in ops:
         if op.get("tool"):
             pending.append(op_to_event(op))
@@ -160,11 +161,17 @@ def generate(plugin, ops) -> list[dict]:
                             text = "SKIP"
                         elif plugin._too_similar(text, recent[-3:]):
                             text = "SKIP"
-                out.append({"text": text, "recorded": sp.get("text", ""),
+                # 口調ゲート（#98）: _maybe_narrate と同じく発話だけ整え、
+                # recent には原文を入れる（生成軌道を変えない）。間投詞の判定は
+                # 視聴者が聞いた列（recent_spoken）で行う
+                spoken = text if plugin._is_skip(text) else plugin._rewrite_bystander_tail(
+                    plugin._derepeat_opener(text, recent_spoken[-3:]))
+                out.append({"text": spoken, "recorded": sp.get("text", ""),
                             "phase": op.get("phase")})
                 pending = []
                 if not plugin._is_skip(text):
                     recent.append(text)
+                    recent_spoken.append(spoken)
             elif src == "agent_response":
                 # 最終応答で未実況イベントは stale（plugin._handle_response と同じ）
                 context = str(sp.get("text") or "")[:120]
