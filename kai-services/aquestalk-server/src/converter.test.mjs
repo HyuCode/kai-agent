@@ -178,6 +178,17 @@ test("toKoe: 文末の句切記号がない LLM 出力には。を補う", async
   assert.equal(koe, "てすと。");
 });
 
+test("toKoe: LLM 出力に混入した隅付き括弧【】を除去して合成可能にする（実機回帰 Issue #94）", async () => {
+  // 第5回リハーサルで aquestalk_cli が合成拒否した実測 koe。修正前は sanitize/validate
+  // をすり抜けて issues=[] のまま採用され、CLI が禁止文字として合成失敗していた
+  const raw =
+    "つみのこしわぼくがわのさぎょうとしてわなしで、つぎわおーなーにれびゅーしてもらって、もんだいなければまーじしてもらうながれだね】【。";
+  const koe = await toKoe("積み残しは僕側の作業として話す", { llm: mockLlm(raw) });
+  assert.doesNotMatch(koe, /[】【]/);
+  // AquesTalk10 が合成できる文字（ひらがな・長音・句切記号・タグ）だけになっていること
+  assert.doesNotMatch(koe.replace(/<(?:NUMK|ALPHA) VAL=[^>]*>/g, ""), /[^ぁ-ゖー。？、;/]/);
+});
+
 test("splitSentences: 句点・感嘆符・疑問符・改行で分割する", () => {
   const sentences = splitSentences("こんにちは。元気ですか？さようなら！\nまた明日。");
   assert.deepEqual(sentences, ["こんにちは。", "元気ですか？", "さようなら！", "また明日。"]);

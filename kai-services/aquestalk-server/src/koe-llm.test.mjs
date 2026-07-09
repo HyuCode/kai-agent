@@ -47,6 +47,24 @@ test("sanitizeLlmKoe: 括弧・鉤括弧は内容ごと除去する", () => {
   assert.equal(sanitizeLlmKoe("「いんよう」ですね。"), "ですね。");
 });
 
+test("sanitizeLlmKoe: 隅付き括弧【】は内容ごと除去する（LLM の区切りマーカー対策 Issue #94）", () => {
+  assert.equal(sanitizeLlmKoe("てすと【みだし】かんりょう。"), "てすとかんりょう。");
+  // 実機観測: 対応の壊れた単体の 】【ing も除去できること（括弧として閉じていない）
+  assert.equal(sanitizeLlmKoe("かんりょう】【。"), "かんりょう。");
+});
+
+test("sanitizeLlmKoe: 実機観測の回帰 fixture（Issue #94・第5回リハーサル）", () => {
+  // 幕4のまとめ発話末尾で 】【ing が混入し aquestalk_cli が合成拒否した実測文
+  const raw =
+    "つみのこしわぼくがわのさぎょうとしてわなしで、つぎわおーなーにれびゅーしてもらって、もんだいなければまーじしてもらうながれだね】【。";
+  const sanitized = sanitizeLlmKoe(raw);
+  assert.doesNotMatch(sanitized, /[】【]/);
+  assert.equal(
+    sanitized,
+    "つみのこしわぼくがわのさぎょうとしてわなしで、つぎわおーなーにれびゅーしてもらって、もんだいなければまーじしてもらうながれだね。",
+  );
+});
+
 test("sanitizeLlmKoe: 感嘆符は句点に、コロン・ハイフンは除去する", () => {
   assert.equal(sanitizeLlmKoe("できた！"), "できた。");
   assert.equal(sanitizeLlmKoe("じかん:てすと-けっか。"), "じかんてすとけっか。");
