@@ -5,7 +5,7 @@
 # 置換）を踏襲する。
 #
 # 使い方（VM 上、通常ユーザーで実行）:
-#   git clone https://github.com/seiichi3141/kai-agent.git ~/kai-agent
+#   git clone https://github.com/HyuCode/kai-agent.git ~/kai-agent
 #   bash ~/kai-agent/kai-services/speechd/install.sh
 set -euo pipefail
 cd "$(dirname "$0")"

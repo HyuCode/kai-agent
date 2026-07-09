@@ -6,10 +6,13 @@
 # 緑・CI 赤」の乖離を無くす（NFR-2）。エージェントは verify.sh の緑だけを完了根拠にする。
 name: kai CI
 
+# pull_request / merge_group は paths フィルタなしで常に回す（約1分）。
+# 「kai verify」は main の必須チェック＝マージキューの合否判定であり、paths で
+# スキップされると kai パス外の PR（upstream 追従等）がキューで永久に詰まるため。
 on:
   push:
     branches: [main]
-    paths: &kai_paths
+    paths:
       - "plugins/kai_*/**"
       - "kai-services/**"
       - "docs/kai/**"
@@ -20,7 +23,7 @@ on:
       - "tests/plugins/test_kai_*.py"
       - ".github/workflows/kai-ci.yml"
   pull_request:
-    paths: *kai_paths
+  merge_group:
 
 permissions:
   contents: read

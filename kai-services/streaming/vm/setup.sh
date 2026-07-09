@@ -4,7 +4,7 @@
 #
 # 前提: Ubuntu Desktop を標準インストール済み（ユーザー名 kai 推奨）、ネットワーク接続あり。
 # 使い方（VM 内のターミナルで）:
-#   git clone https://github.com/seiichi3141/kai-agent.git ~/kai-agent
+#   git clone https://github.com/HyuCode/kai-agent.git ~/kai-agent
 #   bash ~/kai-agent/kai-services/streaming/vm/setup.sh
 set -euo pipefail
 cd "$(dirname "$0")"
