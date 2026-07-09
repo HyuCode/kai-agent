@@ -190,7 +190,8 @@ def _strip_internal(text: str) -> str:
 
 def _sanitize_speech(text: str, limit: int = 120) -> str:
     """発話・字幕に出す直前の最終サニタイズ（秘密マスク→内部ID除去→パス短縮）。"""
-    return _shorten_paths(_strip_internal(_mask(text or "")))[:limit]
+    s = _HIGH_ENTROPY_RE.sub("«redacted»", _mask(text or ""))  # 生の資格情報の最終防波堤（#71）
+    return _shorten_paths(_strip_internal(s))[:limit]
 
 
 # --- ツールイベント → 実況用ダイジェスト（接地: 意図＋操作＋結果）----------------
@@ -202,6 +203,28 @@ _SENSITIVE_RE = re.compile(
     r"\.env\b|\.pem\b|\.key\b|id_rsa|id_ed25519|\.netrc|credential|secret|password|token|\.ssh/",
     re.IGNORECASE,
 )
+
+# 結果「本文」側の平文秘密（#71）。args の denylist（上）だけでは、無害な名前の
+# ファイル（config.yaml 等）やコマンド出力に含まれる平文の秘密
+# （db_password: hunter2 等。env 値でもトークン形式でもない）を素通しする。
+# 代入形（keyword : / = ）と PEM ヘッダにヒットしたら本文全体を伏せる。
+_RESULT_SECRET_RE = re.compile(
+    r"PRIVATE\s+KEY"
+    r"|(?:password|passwd|pwd|api[_-]?key|apikey|secret|token|credential)s?"
+    r"\s*[\"']?\s*[:=]",
+    re.IGNORECASE,
+)
+
+# 高エントロピー様の長い英数トークン（英字と数字が混在する 32 字以上）。
+# _mask のパターン（sk- / ghp_ 等の既知形式）から漏れた生の資格情報を潰す。
+_HIGH_ENTROPY_RE = re.compile(
+    r"\b(?=[A-Za-z0-9+/=_\-]*[0-9])(?=[A-Za-z0-9+/=_\-]*[A-Za-z])[A-Za-z0-9+/=_\-]{32,}\b"
+)
+
+# 結果本文をそのまま材料にしない読み取り系ツール（#71）。実況に欲しいのは
+# 「読めた」という気づきであって生バイトではない（target §3.2）。本文を出さず
+# 規模（行数）だけの構造ダイジェストに縮退する。
+_READ_BODY_TOOLS = {"read_file", "search_files"}
 
 
 def _basename_of(path: Any) -> str:
@@ -272,6 +295,21 @@ def _digest_tool_material(tool: Any, args: Any) -> str:
     return _digest_args(args)
 
 
+def _structural_digest(result: Any) -> str:
+    """本文を出さずに規模だけ伝える構造ダイジェスト（read/search の結果用 #71）。"""
+    if isinstance(result, str):
+        s = result
+    else:
+        try:
+            s = json.dumps(result, ensure_ascii=False, default=str)
+        except Exception:
+            s = str(result)
+    if not s.strip():
+        return "空だった"
+    lines = s.count("\n") + 1
+    return f"{lines}行を読めた"
+
+
 def _result_digest(tool: Any, args: Any, result: Any) -> str:
     """ツール結果を短い実況材料にする。機微 read/コマンドは内容を伏せる（秘密漏洩対策）。"""
     if result is None:
@@ -283,6 +321,9 @@ def _result_digest(tool: Any, args: Any, result: Any) -> str:
         argstr = args
     if _SENSITIVE_RE.search(argstr):
         return "(機微な内容のため伏せる)"
+    # 読み取り系は本文を材料にしない（無害な名前のファイル内の平文秘密を運ばない #71）
+    if str(tool or "") in _READ_BODY_TOOLS:
+        return _structural_digest(result)
     if isinstance(result, (str, int, float, bool)):
         s = str(result)
     else:
@@ -292,7 +333,11 @@ def _result_digest(tool: Any, args: Any, result: Any) -> str:
             s = str(result)
     # 最終出力は 100 字。mask を生文字列の全長に走らせない（hook 同期実行 #74 Bug3）
     s = s.strip()[:_RAW_DIGEST_LIMIT]
+    # 本文に平文秘密の兆候（password: 等の代入形・PEM ヘッダ）があれば全体を伏せる（#71）
+    if _RESULT_SECRET_RE.search(s):
+        return "(機微な内容のため伏せる)"
     s = _mask(s)  # トークン等はここで «redacted»
+    s = _HIGH_ENTROPY_RE.sub("«redacted»", s)  # 既知形式から漏れた長い英数トークンも潰す
     s = re.sub(r"\s+", " ", s)
     return s[:100] + ("…" if len(s) > 100 else "")
 

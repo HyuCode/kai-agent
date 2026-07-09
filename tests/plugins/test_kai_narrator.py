@@ -647,3 +647,45 @@ def test_first_meaningful_bounds_huge_content(narrator_mod):
     # Bug3: 巨大 content を全行 materialize しない（先頭 _RAW_DIGEST_LIMIT 字だけ見る）
     assert narrator_mod._first_meaningful("\n" * 10_000 + "hello") == ""
     assert narrator_mod._first_meaningful("  \n---\n本文はこれ\n" + "y" * 100_000) == "本文はこれ"
+
+
+# --- Issue #71: 結果本文の平文秘密（非 env・非トークン形式）を字幕・TTS に運ばない -----
+
+
+def test_result_digest_read_tools_do_not_carry_body(narrator_mod):
+    # 無害な名前のファイル（config.yaml 等）内の平文秘密を運ばない。
+    # read/search の結果は本文を出さず構造ダイジェスト（行数）に縮退する
+    d = narrator_mod._result_digest("read_file", {"path": "config.yaml"},
+                                    "db_host: localhost\ndb_password: hunter2\n")
+    assert "hunter2" not in d
+    assert "db_password" not in d
+    assert "行を読めた" in d
+    d2 = narrator_mod._result_digest("search_files", {"pattern": "TODO"},
+                                     "a.py:1: TODO fix\nb.py:9: TODO later")
+    assert "行を読めた" in d2
+
+
+def test_result_digest_suppresses_plaintext_secret_in_body(narrator_mod):
+    # terminal 出力の平文秘密（代入形・PEM ヘッダ）は本文ごと伏せる
+    d = narrator_mod._result_digest("terminal", {"command": "cat config.yaml"},
+                                    "db_password: hunter2")
+    assert "hunter2" not in d
+    assert "伏せる" in d
+    d2 = narrator_mod._result_digest("terminal", {"command": "cat k"},
+                                     "-----BEGIN OPENSSH PRIVATE KEY-----\nabc")
+    assert "伏せる" in d2
+
+
+def test_result_digest_redacts_high_entropy_token(narrator_mod):
+    # 既知形式（sk-/ghp_ 等）でない生の長い資格情報も値単位で潰す
+    tok = "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"
+    d = narrator_mod._result_digest("terminal", {"command": "echo x"}, f"value {tok} ok")
+    assert tok not in d
+    assert "«redacted»" in d
+
+
+def test_sanitize_speech_redacts_high_entropy_token(narrator_mod):
+    # 出力側（発話直前）にも同じ防波堤を効かせる
+    tok = "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"
+    out = narrator_mod._sanitize_speech(f"これ {tok} を見てほしい")
+    assert tok not in out

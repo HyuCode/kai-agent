@@ -60,12 +60,19 @@ GENERIC_ALLOW = {
 #    are not false-positives; those are handled by the translation layer, not here.
 #  - raw ref: raw Issue/PR number notation (#65, "Issue #65", "PR #56").
 #  - raw json: a { ... } blob leaking into speech.
+#  - plaintext secret: a key:value / key=value credential assignment or PEM header
+#    reaching subtitles/TTS (Issue #71 — plaintext secrets that are neither env
+#    values nor known token formats, e.g. "db_password: hunter2").
 LEAK_PATTERNS = {
     "commit_hash": re.compile(r"(?<![0-9A-Za-z])[0-9a-f]{7,40}(?![0-9A-Za-z])"),
     "branch_slug": re.compile(r"\b(?:feature|fix|chore|docs|refactor)/[\w./\-]+"),
     "todo_id": re.compile(r"\b[A-Za-z]*[0-9]+[A-Za-z]*-[A-Za-z0-9_\-]+\b"),
     "raw_ref": re.compile(r"(?i)(?:issue|pr)\s*#?\s*[0-9]+|#[0-9]+"),
     "raw_json": re.compile(r"\{[^{}]*[:\[][^{}]*\}"),
+    "plaintext_secret": re.compile(
+        r"(?i)(?:PRIVATE\s+KEY"
+        r"|(?:password|passwd|pwd|api[_-]?key|apikey|secret|token|credential)s?"
+        r"\s*[\"']?\s*[:=]\s*\S+)"),
 }
 
 # FR9: target utterance length (chars). 01-target 1.2 / FR9.
