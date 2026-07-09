@@ -34,6 +34,9 @@ _MAX_FIELD_CHARS = 4000
 _QUEUE_MAXSIZE = 10000
 
 # --- 秘匿マスク（設計 §5.3。書き込み前に必ず適用）---------------------------
+# 注意: この 3 実装は plugin 単体完結の原則でコピーになっている。パターンや
+# 収集ロジックを変えるときは 3 箇所（kai_narrator / kai_trace / speechd）を
+# 同時に更新する（Issue #77 H-b）。
 
 _TOKEN_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),
@@ -41,14 +44,40 @@ _TOKEN_PATTERNS = [
     re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),
     re.compile(r"xox[baprs]-[A-Za-z0-9\-]{10,}"),
     re.compile(r"Bearer\s+[A-Za-z0-9._\-]{10,}"),
+    re.compile(r"AIza[0-9A-Za-z_\-]{20,}"),  # Google API key
+    re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access key ID
+    re.compile(r"eyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,}"),  # JWT
+    re.compile(r"://[^/\s:@]{1,64}:[^/\s@]{1,256}@"),  # URL 埋め込み認証情報（user:pass@）
+    re.compile(r"rtmps?://[^\s\"']+"),  # RTMP 配信 URL（パスにストリームキーが載る）
+    # YouTube ストリームキー形（xxxx-xxxx-xxxx-xxxx[-xxxx]）。kebab-case 識別子の
+    # 誤マスクを避けるため数字を1つ以上含むものだけ対象にする
+    re.compile(r"\b(?=[0-9a-z\-]*\d)[0-9a-z]{4}(?:-[0-9a-z]{4}){3,4}\b"),
 ]
 
 
+def _iter_dotenv_items():
+    """~/.hermes/.env の KEY=VALUE を直接読む（Issue #77 H-b）。
+
+    hermes は資格情報を .env 直読み（get_env_value_prefer_dotenv）で解決し
+    環境変数に載せないため、os.environ だけでは env 秘密層が実行時に空になる。
+    """
+    try:
+        with open(get_hermes_home() / ".env", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                yield k.strip(), v.strip().strip("'\"")
+    except OSError:
+        return
+
+
 def _collect_env_secrets() -> list[str]:
-    """秘密っぽいキー名の env 値を、長いものから順にマスク対象として集める。"""
+    """秘密っぽいキー名の値（os.environ ＋ .env 直読み）を長いものから順に集める。"""
     vals: set[str] = set()
-    for k, v in os.environ.items():
-        if not v or len(v) < 8:
+    for k, v in list(os.environ.items()) + list(_iter_dotenv_items()):
+        if not v or len(v) < 6:
             continue
         if re.search(r"(KEY|TOKEN|SECRET|PASSWORD|PAT|CREDENTIAL)", k, re.IGNORECASE):
             vals.add(v)
