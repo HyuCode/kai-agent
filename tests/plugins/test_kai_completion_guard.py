@@ -218,6 +218,15 @@ def test_note_is_deterministic(guard):
     assert guard._build_note(kinds, prs) == guard._build_note(kinds, prs)
 
 
+def test_future_conditional_is_not_a_claim(guard):
+    # 条件・待機表現は「検証を実施した」主張ではない（レビューで追加した誤検知ガード）
+    assert guard._detect_claims("あとは CI が緑になったらマージしてもらう流れだね") == []
+    assert guard._detect_claims("CI が緑になるのを待ってるよ") == []
+    assert guard._detect_claims("CI が緑になれば mergeable になるはず") == []
+    # 過去断定は引き続き主張として拾う
+    assert guard._detect_claims("PR #93 の CI は緑だったよ") != []
+
+
 def test_no_claim_returns_none(guard):
     out = guard._on_transform_llm_output(
         response_text="ファイルを整理してコミットした。", session_id="s-x"
