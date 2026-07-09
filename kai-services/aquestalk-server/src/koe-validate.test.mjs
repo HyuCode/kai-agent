@@ -20,6 +20,7 @@ test("validateKoe: 禁止項目をそれぞれ検出する", () => {
     ["できた！", /感嘆符/],
     ["じかん:です。", /コロン/],
     ["てすと-けっか。", /ハイフン/],
+    ["だね】【。", /括弧/],
   ];
   for (const [koe, expected] of cases) {
     const issues = validateKoe(koe);
@@ -28,6 +29,21 @@ test("validateKoe: 禁止項目をそれぞれ検出する", () => {
       `${koe} で ${expected} が検出されること（実際: ${JSON.stringify(issues)}）`,
     );
   }
+});
+
+test("validateKoe: 隅付き括弧【】を鉤括弧・許可リスト外の両方で検出する（Issue #94）", () => {
+  const issues = validateKoe("だね】【。");
+  assert.ok(issues.some((i) => /括弧/.test(i)));
+  assert.ok(issues.some((i) => /許可リスト外/.test(i)));
+});
+
+test("validateKoe: 実機観測の回帰 fixture（Issue #94・第5回リハーサル）は違反を検出する", () => {
+  // 修正前はこの koe が issues=[] を返し aquestalk_cli が合成拒否していた
+  const koe =
+    "つみのこしわぼくがわのさぎょうとしてわなしで、つぎわおーなーにれびゅーしてもらって、もんだいなければまーじしてもらうながれだね】【。";
+  const issues = validateKoe(koe);
+  assert.ok(issues.length > 0);
+  assert.ok(issues.some((i) => /括弧/.test(i)));
 });
 
 test("validateKoe: タグ内の英数字は違反にしない", () => {

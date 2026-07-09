@@ -224,6 +224,9 @@ export function sanitizeLlmKoe(koe) {
     .replace(/「[^「」]*」/g, "")
     .replace(/『[^『』]*』/g, "")
     .replace(/[「」『』]/g, "");
+  // 隅付き括弧（LLM が見出し・区切りマーカーとして付けがち。例:
+  // 「まとめだね】【。」— 実機観測 Issue #94）も内容ごと除去する
+  s = s.replace(/【[^【】]*】/g, "").replace(/[【】]/g, "");
 
   // タグ以外の部分の記号・かなを正規化
   s = mapNonTagParts(s, (part) => {

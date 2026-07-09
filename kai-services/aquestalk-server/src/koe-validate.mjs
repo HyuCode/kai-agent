@@ -17,7 +17,7 @@ export function validateKoe(koe) {
   // タグ内の英数字は正当なので、タグを除いた文字列でも判定する
   const outsideTags = koe.replace(new RegExp(TAG_REGEX_SOURCE, "g"), "");
 
-  if (/[「」『』（）()]/.test(koe)) issues.push("鉤括弧・括弧が含まれている");
+  if (/[「」『』（）()【】]/.test(koe)) issues.push("鉤括弧・括弧が含まれている");
   if (/[a-zA-Z]/.test(outsideTags)) issues.push("タグ外に半角英字が含まれている");
   if (/[ａ-ｚＡ-Ｚ]/.test(koe)) issues.push("全角英字が含まれている");
   if (/[一-鿿]/.test(koe)) issues.push("漢字が含まれている");
@@ -27,6 +27,13 @@ export function validateKoe(koe) {
   if (/[！!]/.test(koe)) issues.push("感嘆符が含まれている");
   if (/:/.test(outsideTags)) issues.push("コロンが含まれている");
   if (/-/.test(outsideTags)) issues.push("ハイフンが含まれている");
+  // 上記の個別チェックは既知パターンの列挙であり、未知のマーカー文字（例: 全角
+  // 括弧【】が漏れていた Issue #94）を将来も見逃しうる。設計書 §4.1 の
+  // 許可リストそのものを最終ゲートにし、ルールベース経路の formatKoe と同じ
+  // 基準を LLM 経路にも確実に効かせる（列挙し忘れに依存しない構造的な網）
+  if (/[^ぁ-ゖー。？、;/]/.test(outsideTags)) {
+    issues.push("許可リスト外の文字が含まれている（タグ外・かな/長音/句切記号以外）");
+  }
 
   return issues;
 }
