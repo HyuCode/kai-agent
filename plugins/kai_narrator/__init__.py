@@ -267,7 +267,9 @@ def _digest_args(args: Any) -> str:
         s = ""
     else:
         s = str(args)
-    s = _shorten_paths(_mask(s.strip()))
+    # push_tool_event（hook 同期パス）の旗艦判定からも呼ばれる。巨大な command
+    # （heredoc 等）に mask を全長で走らせない（#74 Bug3 と同じ理由）
+    s = _shorten_paths(_mask(s.strip()[:_RAW_DIGEST_LIMIT]))
     return s[:80] + ("…" if len(s) > 80 else "")
 
 
@@ -319,11 +321,13 @@ def _result_digest(tool: Any, args: Any, result: Any) -> str:
     """ツール結果を短い実況材料にする。機微 read/コマンドは内容を伏せる（秘密漏洩対策）。"""
     if result is None:
         return ""
+    # args 側も未境界で走査しない（write_file の巨大 content 等。#74 Bug3 と同じ理由）
     argstr = ""
     if isinstance(args, dict):
-        argstr = " ".join(str(v) for v in args.values() if isinstance(v, (str, int, float)))
+        argstr = " ".join(str(v)[:_RAW_DIGEST_LIMIT] for v in args.values()
+                          if isinstance(v, (str, int, float)))[:_RAW_DIGEST_LIMIT]
     elif isinstance(args, str):
-        argstr = args
+        argstr = args[:_RAW_DIGEST_LIMIT]
     if _SENSITIVE_RE.search(argstr):
         return "(機微な内容のため伏せる)"
     # 読み取り系は本文を材料にしない（無害な名前のファイル内の平文秘密を運ばない #71）
@@ -788,8 +792,12 @@ class _Narrator:
                 return
             # 消費はまだ確定させない。生成に失敗したらイベント（特に旗艦イベント）を
             # 捨てず次回に持ち越す（#74 Bug1: 生成失敗での取りこぼし防止）。
+            # 材料は直近8件＋それより古い旗艦イベント全部。古い非旗艦は stale として
+            # 捨ててよいが、旗艦（テスト結果・コミット・PR・エラー）は溢れても
+            # 無音で捨てない（生成待ちの20秒で9件超は現実に起きる）。
             pending = list(self._events)
-            events = pending[-8:]
+            tail = pending[-8:]
+            events = [ev for ev in pending[:-8] if _is_flagship(ev)] + tail
             session_id = str(events[-1].get("session_id") or "")
             context = self._context
             recent = list(self._recent_narrations)

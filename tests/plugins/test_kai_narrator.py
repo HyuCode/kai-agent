@@ -691,6 +691,57 @@ def test_sanitize_speech_redacts_high_entropy_token(narrator_mod):
     assert tok not in out
 
 
+def test_maybe_narrate_includes_overflowed_flagship(narrator_mod, narrator, monkeypatch):
+    # 直近8件の材料枠から溢れた古い旗艦イベント（コミット等）も材料に含め、
+    # 無音のまま捨てない（隔離レビュー M1。生成待ちの間に9件超は現実に起きる）
+    sent = []
+    seen = {}
+    monkeypatch.setattr(narrator_mod, "_post_say", lambda url, payload, timeout=3.0: sent.append(payload))
+
+    def _gen(events, **kw):
+        seen["events"] = list(events)
+        return "コミットしてから残りのファイルを見てるよ"
+    monkeypatch.setattr(narrator_mod, "_generate_narration", _gen)
+    narrator.push_tool_event({"tool": "terminal", "args": {"command": "git commit -m x"}})  # 旗艦（最古）
+    for i in range(9):
+        narrator.push_tool_event({"tool": "read_file", "args": {"path": f"f{i}.py"}})
+    narrator._maybe_narrate()
+    assert len(sent) == 1
+    cmds = [str((e.get("args") or {}).get("command", "")) for e in seen["events"]]
+    assert any("git commit" in c for c in cmds)  # 溢れた旗艦が材料に含まれている
+    assert len(narrator._events) == 0  # 消費済み（stale な非旗艦も含めて掃ける）
+
+
+def test_result_digest_bounds_args_scan(narrator_mod, monkeypatch):
+    # args 側（write_file の巨大 content 等）も全長走査しない（隔離レビュー M2）
+    class _SpyRe:
+        def __init__(self, inner):
+            self.inner = inner
+            self.lens = []
+
+        def search(self, s):
+            self.lens.append(len(s))
+            return self.inner.search(s)
+
+    spy = _SpyRe(narrator_mod._SENSITIVE_RE)
+    monkeypatch.setattr(narrator_mod, "_SENSITIVE_RE", spy)
+    d = narrator_mod._result_digest("write_file",
+                                    {"path": "a.txt", "content": "y" * 5_000_000},
+                                    "1 file changed")
+    assert max(spy.lens) <= narrator_mod._RAW_DIGEST_LIMIT
+    assert "1 file changed" in d
+
+
+def test_digest_args_bounds_mask_on_huge_command(narrator_mod, monkeypatch):
+    # _digest_args は push_tool_event（hook 同期パス）の旗艦判定からも呼ばれる
+    calls = []
+    orig = narrator_mod._mask
+    monkeypatch.setattr(narrator_mod, "_mask", lambda s: (calls.append(len(s)), orig(s))[1])
+    d = narrator_mod._digest_args({"command": "echo " + "z" * 5_000_000})
+    assert max(calls) <= narrator_mod._RAW_DIGEST_LIMIT
+    assert len(d) <= 81  # 80 字 + 省略記号
+
+
 # --- Issue #72: kickoff（配信冒頭の Issue 説明。FR8）------------------------------
 
 
