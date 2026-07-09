@@ -286,7 +286,11 @@ cmd_scene() {
     echo "使い方: broadcast.sh scene <シーン名>" >&2
     exit 2
   fi
-  "${OBSWS_PYTHON}" "${OBSWS}" SetCurrentProgramScene "{\"sceneName\": \"${name}\"}"
+  # シーン名に " や \ が入っても壊れないよう JSON は python3 でエンコードする
+  # （手組みの "{\"sceneName\": \"${name}\"}" は特殊文字で破損。Issue #77 L2）
+  local payload
+  payload="$("${OBSWS_PYTHON}" -c 'import json,sys; print(json.dumps({"sceneName": sys.argv[1]}))' "${name}")"
+  "${OBSWS_PYTHON}" "${OBSWS}" SetCurrentProgramScene "${payload}"
 }
 
 cmd_agenda() {
