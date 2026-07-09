@@ -150,6 +150,21 @@ def _mask(text: str) -> str:
     return text
 
 
+def _origin_forbidden(origin: str | None, port: int) -> bool:
+    """ブラウザ由来のクロスオリジン POST（CSRF）を遮断する（Issue #77 M-b）。
+
+    kai は配信中に stream-browser で外部 URL（Issue リンク先）を開くため、
+    悪意ページが fetch("http://127.0.0.1:8900/say", ...) で任意音声を配信に
+    喋らせる余地がある。正規 producer（narrator の urllib・broadcast.sh の
+    curl）は Origin ヘッダを送らないので、Origin が付いている＝ブラウザ由来
+    とみなし、自ホスト以外（"null" = file:// 含む）を拒否する。overlay は
+    読み取り専用（GET /events）で POST しないため影響しない。
+    """
+    if origin is None:
+        return False
+    return origin not in {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+
+
 # --- トレース（JSONL 追記。best-effort。設計 §5.1 の共通エンベロープ）------
 
 
@@ -498,7 +513,9 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         # overlay は file:// オリジンで動く（EventSource の CORS 対策）。
-        # bind は 127.0.0.1 限定なので "*" でも外部には露出しない。
+        # bind は 127.0.0.1 限定なので "*" でも外部には露出しない。読み取りは
+        # 配信画面に出る公開情報のみで、書き込み（POST /say）は Origin 検査で
+        # ブラウザ由来のクロスオリジンを遮断する（#77 M-b/L5 の判断）。
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
         self.wfile.write(body)
@@ -606,6 +623,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         if self.path != "/say":
             self._send_json(404, {"error": "not found"})
+            return
+        if _origin_forbidden(self.headers.get("Origin"), PORT):
+            self._send_json(403, {"error": "forbidden origin"})
             return
 
         length = int(self.headers.get("Content-Length") or "0")

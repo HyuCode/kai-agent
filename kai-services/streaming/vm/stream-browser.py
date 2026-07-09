@@ -27,9 +27,8 @@ import os
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
-
-import websocket  # python3-websocket（obsws.py と同じ）
 
 CDP_PORT = int(os.environ.get("STREAM_BROWSER_PORT", "9222"))
 CDP_HTTP = f"http://127.0.0.1:{CDP_PORT}"
@@ -40,7 +39,11 @@ DISPLAY = os.environ.get("DISPLAY", ":0")
 # インフォバー・パスワード保存を抑止し、配信画面をきれいに保つ。
 CHROMIUM_FLAGS = [
     f"--remote-debugging-port={CDP_PORT}",
-    "--remote-allow-origins=*",
+    # CDP WebSocket の Origin 検査を無効化する "*" は使わない（Issue #77 M-a）。
+    # 外部由来 URL（Issue リンク先）を開く運用なので、訪問先ページが CDP に
+    # 接続してブラウザを完全制御（Runtime.evaluate・セッション読取）する余地を
+    # 断つ。本 CLI の websocket クライアントは Origin を送らないため影響なし。
+    "--remote-allow-origins=http://localhost",
     "--disable-gpu",  # llvmpipe（GPU なし）。PoC で静的ページは CPU ほぼ 0
     "--no-first-run",
     "--no-default-browser-check",
@@ -50,6 +53,31 @@ CHROMIUM_FLAGS = [
     "--password-store=basic",
     "--start-maximized",
 ]
+
+
+# 配信ブラウザで開いてよい URL（Issue #77 M-a）。外部由来 URL（Issue 本文の
+# リンク等）を無制限に開くと、悪意ページ経由の攻撃面（CSRF・CDP 接続・偽装表示）
+# になるため、https の信頼ドメインと自ホストに限定する。追加が必要なら
+# STREAM_BROWSER_ALLOW にカンマ区切りでドメインを足す。
+_ALLOWED_DOMAINS = {"github.com", "githubusercontent.com"}
+_ALLOWED_DOMAINS.update(
+    d.strip().lower() for d in os.environ.get("STREAM_BROWSER_ALLOW", "").split(",") if d.strip())
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _url_allowed(url: str) -> bool:
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    host = (parts.hostname or "").lower()
+    if not host:
+        return False
+    if parts.scheme in ("http", "https") and host in _LOOPBACK_HOSTS:
+        return True  # 自前サービス（overlay 等）の確認用
+    if parts.scheme != "https":
+        return False
+    return any(host == d or host.endswith("." + d) for d in _ALLOWED_DOMAINS)
 
 
 def _cdp_targets() -> list[dict]:
@@ -76,6 +104,7 @@ class _CDP:
     """1 ページに接続する最小 CDP クライアント（同期・1 コマンド 1 応答）。"""
 
     def __init__(self, ws_url: str) -> None:
+        import websocket  # python3-websocket（obsws.py と同じ。接続時のみ必要）
         self._ws = websocket.create_connection(ws_url, timeout=10)
         self._id = 0
 
@@ -121,6 +150,11 @@ def _launch() -> None:
 def cmd_open(url: str) -> None:
     if not url:
         print("使い方: stream-browser.py open <url>", file=sys.stderr)
+        sys.exit(2)
+    if not _url_allowed(url):
+        print(f"開けない URL: {url}\n"
+              f"（https の信頼ドメイン {sorted(_ALLOWED_DOMAINS)} と自ホストのみ。"
+              "追加は STREAM_BROWSER_ALLOW）", file=sys.stderr)
         sys.exit(2)
     if not _browser_running():
         _launch()

@@ -194,8 +194,15 @@ function resolvePath(p) {
   return p;
 }
 
+// 機微パス denylist（Issue #77 M-b）。/open・/edit で .env や鍵ファイルを
+// VSCode（=配信画面）に開かせない。narrator plugin の _SENSITIVE_RE と同方針。
+const SENSITIVE_PATH_RE = /\.env\b|\.pem\b|\.key\b|id_rsa|id_ed25519|\.netrc|credential|secret|password|token|\.ssh\//i;
+
 /** POST /open {path, line?}: ファイルを開き該当行へスクロール。 */
 async function openFile(path, line) {
+  if (typeof path !== "string" || SENSITIVE_PATH_RE.test(path)) {
+    throw new Error("sensitive or invalid path refused");
+  }
   const doc = await vscode.workspace.openTextDocument(resolvePath(path));
   const editor = await vscode.window.showTextDocument(doc, { preview: false });
   if (typeof line === "number" && line > 0) {
@@ -249,6 +256,7 @@ function handleEdit(data) {
     : (Array.isArray(data.files) ? data.files.map((p) => ({ path: p, action: "update" })) : []);
   for (const e of edits) {
     const path = e && e.path;
+    if (typeof path === "string" && SENSITIVE_PATH_RE.test(path)) continue; // 機微パスは表示しない（#77 M-b）
     if (typeof path === "string" && path.startsWith("/") && !pending.some((q) => q.path === path)) {
       pending.push({ path, action: e.action === "add" ? "add" : "update" });
     }
@@ -265,6 +273,15 @@ function activate(context) {
 
   const server = http.createServer(async (req, res) => {
     try {
+      // ブラウザ由来のクロスオリジン要求（CSRF）を遮断する（Issue #77 M-b）。
+      // kai は配信中に stream-browser で外部 URL を開くため、悪意ページが
+      // fetch("http://127.0.0.1:8920/open", ...) で機微ファイルを配信画面に
+      // 開かせる余地がある。正規クライアント（kai_ide plugin の urllib）は
+      // Origin を送らないので、Origin 付き（"null" = file:// 含む）は一律拒否。
+      if (req.headers.origin !== undefined) {
+        sendJson(res, 403, { error: "forbidden origin" });
+        return;
+      }
       if (req.method === "GET" && req.url === "/state") {
         sendJson(res, 200, getState());
         return;

@@ -37,6 +37,10 @@ cat > "$PLIST" <<EOF
     <key>AQUESTALK_DEV_KEY</key><string>${AQUESTALK_DEV_KEY:-}</string>
     <key>AQUESTALK_USR_KEY</key><string>${AQUESTALK_USR_KEY:-}</string>
     <key>PORT</key><string>${PORT:-8890}</string>
+    <!-- BIND_ADDR は 0.0.0.0 が既定（VM/koe-bridge が Tailscale 越しに Mac の
+         TTS を叩くため loopback 固定にはできない）。/synthesize は未認証なので
+         Tailscale ACL で 8890 を kai-vm ノード限定にして守る（Issue #77 L4）。
+         Mac をローカル利用のみに絞れる環境では BIND_ADDR=127.0.0.1 を渡す。 -->
     <key>BIND_ADDR</key><string>${BIND_ADDR:-0.0.0.0}</string>
   </dict>
   <key>RunAtLoad</key><true/>
