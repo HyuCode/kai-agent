@@ -1,7 +1,7 @@
 /**
  * LLM による koe（AquesTalk10 音声記号列）生成 — 主経路。
  *
- * 設計: docs/kai/design/tts-reading-rules.md §5.2。
+ * 設計: docs/kai/02-architecture/04-tts-reading-rules.md §5.2。
  * 旧 kai プロジェクト packages/tts/src/provider/text-to-speech-provider.ts の
  * プロンプト（v3/v4）と sanitizeLlmKoe を統合・適応した移植。
  *

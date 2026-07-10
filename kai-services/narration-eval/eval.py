@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Offline narration evaluator for kai (docs/kai/narration/03-design.md 2.5).
+"""Offline narration evaluator for kai (docs/kai/03-features/02-narration/04-design.md 2.5).
 
 Scores a sequence of narration utterances against the FR machine-checks in
-docs/kai/narration/02-requirements.md. Standard library only — no external deps.
+docs/kai/03-features/02-narration/03-requirements.md. Standard library only — no external deps.
 
 Pipeline position (03-design 0):
     fixture (op log + grounding)  ->  narrator (candidate)  ->  THIS evaluator
@@ -11,7 +11,7 @@ Today the candidate generator is NOT connected: by default we score the
 produce a baseline. The generator hook is `--candidates FILE.json` (see README).
 
 Usage:
-    python3 eval.py --fixture ../../docs/kai/narration/fixtures/issue65-confabulation.jsonl
+    python3 eval.py --fixture ../../docs/kai/03-features/02-narration/90-fixtures/02-issue65-confabulation.jsonl
     python3 eval.py --fixture <f.jsonl> --candidates gen.json   # score a generator's output
     python3 eval.py --fixture <f.jsonl> --json out.json          # also emit machine JSON
 """

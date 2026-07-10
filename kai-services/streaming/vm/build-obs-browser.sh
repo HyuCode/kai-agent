@@ -6,7 +6,7 @@
 # ソースが使えない。Flathub にも aarch64 OBS がない。そこで OBS 本体（apt 版）は
 # そのままに、obs-browser プラグインだけを apt 版と同じ 30.0.2 系ソースから自前
 # ビルドして足す。字幕オーバーレイ（speechd の GET /overlay/）をブラウザソースで
-# 配信映像に合成するのが目的。設計: docs/kai/design/00-system.md §4。
+# 配信映像に合成するのが目的。設計: docs/kai/02-architecture/01-system.md §4。
 #
 # 冪等（各ステップは成果物があればスキップ）。CEF 取得 + wrapper/プラグインの
 # コンパイルで 20〜40 分・ディスク約 1GB。使い方（VM 内）:

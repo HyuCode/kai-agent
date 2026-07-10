@@ -2,11 +2,12 @@
 
 **ステータス: 検討中。オーナーと対話しながら育てる草案。** 確定事項と未決論点（TBD）を
 区別して記す。2026-07-09 の懐疑レビュー（High3・Medium4・Low3）の指摘を反映済み
-（本文中に「レビュー Hn/Mn/Ln」で明示）。MVP の定義には「無人・自動」は含まれない（`mvp-plan.md`）ため、これは
+（本文中に「レビュー Hn/Mn/Ln」で明示）。MVP の定義には「無人・自動」は含まれない（`../../01-product/02-mvp-roadmap.md`）ため、これは
 MVP の先の新しい方向。憶測で実装に進まず、要件を固めてから設計・実装する。
 
-関連: [[kai-mvp-progress]] / `m4-runbook.md`（手動運転）/ `streaming-preflight.md`
-（配信前ゲート）/ `loop-engineering.md`（loop contract）。
+関連: [[kai-mvp-progress]] / `../../04-operations/01-manual-broadcast-runbook.md`（手動運転）/
+`../../04-operations/02-streaming-preflight.md`（配信前ゲート）/
+`../../05-quality/01-loop-engineering.md`（loop contract）。
 
 ## 1. ゴール（確定 — 2026-07-09 オーナー合意）
 
@@ -118,7 +119,7 @@ narrator・オーケストレーター・フェイルセーフ・`broadcast.sh` 
 
 **TBD**:
 
-- マージ後の VM 反映（`vm-deploy-runbook.md`）を自動化するか、手動のままか。
+- マージ後の VM 反映（`../../04-operations/03-vm-deployment-runbook.md`）を自動化するか、手動のままか。
 
 ## 4. フェイルセーフ（最重要・これから一緒に設計）
 
@@ -177,7 +178,7 @@ narrator・オーケストレーター・フェイルセーフ・`broadcast.sh` 
 
 - ライフサイクル CLI: `broadcast.sh`（start/stream-start/stream-stop/stop/scene/status/screenshot）、
   `stage.sh`（tmux + VSCode 構築）、`kai-ask.sh`（指示投入）。
-- 開始前ゲート: `streaming-preflight.md`（秘密・認証・通知・ネットワークの各チェック）。
+- 開始前ゲート: `../../04-operations/02-streaming-preflight.md`（秘密・認証・通知・ネットワークの各チェック）。
 - 観測: `kai_trace`（全事象 JSONL）、trace ビューア。
 - 制御と作業の分離: SOUL.md で kai は `broadcast.sh` の start/stop/stream-\* を実行しない
   （自分の配信を落とさない）。**自動配信でも、配信制御は kai 本体でなく外側の

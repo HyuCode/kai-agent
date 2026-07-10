@@ -14,6 +14,30 @@ PRETTIER=prettier@3.6.2
 
 GLOBS=("docs/kai/**/*.md" "kai-services/**/*.md" "CLAUDE.md" ".claude/agents/*.md")
 
+check_kai_doc_numbering() {
+  local failed=0 path name
+
+  # stream-review/ は .gitignore 対象のローカル作業記録なので、正式文書の規則から除外する。
+  while IFS= read -r -d '' path; do
+    name="${path##*/}"
+    if [[ ! "$name" =~ ^[0-9]{2}- ]]; then
+      echo "番号なしの kai 文書パス: $path" >&2
+      failed=1
+    fi
+  done < <(
+    find docs/kai \
+      -path docs/kai/stream-review -prune -o \
+      -mindepth 1 \( -type d -o -type f \) -print0
+  )
+
+  if ((failed)); then
+    echo "docs/kai の正式文書は NN- で始まる名前にしてください。" >&2
+    return 1
+  fi
+}
+
+check_kai_doc_numbering
+
 if [[ "${1:-}" == "--fix" ]]; then
   npx --yes "$PRETTIER" --write "${GLOBS[@]}"
   npx --yes "$MARKDOWNLINT" --fix

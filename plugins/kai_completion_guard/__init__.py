@@ -16,7 +16,7 @@
      kai_trace ディレクトリへ confab_flagged を発行する（F2 ウォッチャー/オーナー
      通知の購読点）。
 
-制約（AGENTS.md 2大原則 / docs/kai/auto-streaming/01-design.md）:
+制約（AGENTS.md 2大原則 / docs/kai/03-features/03-auto-streaming/02-design.md）:
 - コアは narrow waist。本 plugin はコアを一切改変せず、既存 hook
   （transform_llm_output / post_tool_call / on_session_start）にのみ相乗りする。
 - transform_llm_output は配信物（result["final_response"]）だけを書き換える。

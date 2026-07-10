@@ -3,14 +3,14 @@
 <!--
 このテンプレートの使い方:
 - <> で囲まれた箇所を置き換える。該当しないセクションは「なし」と明記して残す（削除しない — 「検討漏れ」と「該当なし」を区別するため）。
-- 書き方の原則は docs/kai/design/README.md を参照。
+- 書き方の原則は `docs/kai/02-architecture/00-index.md` を参照。
 - 1 コンポーネント = 1 ファイル。実装が 1 PR（目安: 変更 5 ファイル / 300 行）に収まらない場合は「11. 実装手順」で PR 単位に分割する。
 -->
 
 - **ステータス:** ドラフト | レビュー済み | 実装中 | 実装済み
 - **作成日 / 更新日:** <YYYY-MM-DD>
-- **満たす要件:** <F-xx, F-yy>（`docs/kai/requirements.md`）
-- **マイルストーン:** <M0〜M5 / フェーズ n>（`docs/kai/mvp-plan.md`）
+- **満たす要件:** <F-xx, F-yy>（`docs/kai/01-product/01-requirements.md`）
+- **マイルストーン:** <M0〜M5 / フェーズ n>（`docs/kai/01-product/02-mvp-roadmap.md`）
 - **種別:** plugin | skill | 独立プロセス | cron ジョブ | skin | config のみ
 - **配置:** <リポジトリ内パス。例: `plugins/kai_narrator/`>
 
@@ -51,7 +51,7 @@ Response: 202 {"queued": true, "queue_depth": 2}
 
 ## 4. データモデル
 
-<永続化するもの・イベントスキーマ・設定ファイル形式。JSONL イベントは `docs/kai/design/00-system.md` の共通エンベロープに従い、payload 部分のみ定義する。>
+<永続化するもの・イベントスキーマ・設定ファイル形式。JSONL イベントは `docs/kai/02-architecture/01-system.md` の共通エンベロープに従い、payload 部分のみ定義する。>
 
 ```jsonc
 <スキーマ例>

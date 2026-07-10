@@ -29,7 +29,7 @@
   作話しようがない」ので通す。これをしないと翻訳語（`pytest`→「テスト」）を
   接地外と誤判定して過剰抑制する（実測で確認）。
 - precision（過剰抑制しない）優先。取りこぼしは本命バックストップの
-  narration-eval が拾う（設計 = `docs/kai/narration/04-implementation-plan.md`）。
+  narration-eval が拾う（設計 = `docs/kai/03-features/02-narration/05-implementation-plan.md`）。
 
 ## 2. penalty のバックエンド実測（M4/M5）
 
@@ -60,8 +60,8 @@ codex では無害に無視されるため）。
 
 ```bash
 cd kai-services/narration-eval
-python3 generate.py --fixture ../../docs/kai/narration/fixtures/issue65-confabulation.jsonl \
+python3 generate.py --fixture ../../docs/kai/03-features/02-narration/90-fixtures/02-issue65-confabulation.jsonl \
   --base-url http://<llm-host>:8080/v1 --out /tmp/gen65.json
-python3 eval.py --fixture ../../docs/kai/narration/fixtures/issue65-confabulation.jsonl \
+python3 eval.py --fixture ../../docs/kai/03-features/02-narration/90-fixtures/02-issue65-confabulation.jsonl \
   --candidates /tmp/gen65.json
 ```

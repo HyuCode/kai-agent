@@ -1,6 +1,6 @@
 # kai-services/streaming — M0 ランブック
 
-kai の配信スタック（永続 Linux デスクトップ + 音声経路 + OBS + VNC）。**現行の実行環境はオーナーの Mac 上の Docker コンテナ**（`docker/`）。設計は `docs/kai/design/streaming.md`、検証基準は同 §9。
+kai の配信スタック（永続 Linux デスクトップ + 音声経路 + OBS + VNC）。**現行の実行環境はオーナーの Mac 上の Docker コンテナ**（`docker/`）。設計は `docs/kai/02-architecture/02-streaming.md`、検証基準は同 §9。
 
 > **旧構成（温存）:** Oracle A1 VM 向けの `setup.sh` / `units/` / `oracle/` は復帰オプションとして残している（A1 インスタンスは停止中）。VM 版の手順・トラブルシュートは git 履歴の本 README 旧版を参照。
 

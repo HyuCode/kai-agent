@@ -1,6 +1,6 @@
 """kai_narrator: 実況 plugin（要件 F-7）。
 
-設計: docs/kai/design/00-system.md ADR-1（実況ハイブリッド）
+設計: docs/kai/02-architecture/01-system.md ADR-1（実況ハイブリッド）
   1. kai の最終応答テキスト（post_llm_call）は変換せず、そのまま speechd へ
      発話として送る（source=agent_response, priority=normal）。人格は kai 自身。
   2. ツール実行中の無音区間は post_tool_call でイベントを捕捉し、auxiliary LLM

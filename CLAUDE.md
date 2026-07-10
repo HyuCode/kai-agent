@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-このリポジトリは **Hermes Agent**（Nous Research 製の自己改善型 AI エージェント）の fork で、この上に AITuber「kai」を実装します（要件は `docs/kai/requirements.md`）。
+このリポジトリは **Hermes Agent**（Nous Research 製の自己改善型 AI エージェント）の fork で、この上に AITuber「kai」を実装します（要件は `docs/kai/01-product/01-requirements.md`）。
 
 ## ブランチ戦略（2026-07-05 改訂・2026-07-09 org 移管）
 
@@ -14,11 +14,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **機能開発** — `feature/*` ブランチ → PR → `main`。**main はルールセットで保護**（PR 必須・`kai verify` 必須チェック・**マージキュー**。直 push・force-push・削除は不可）。マージは「Merge when ready」でキューに入り、キュー内ビルドで `kai verify` が再実行されてから入る。
 - **注意（命名の重なり）** — remote 名 `upstream` とブランチ名 `upstream` が同名。`git switch upstream` はブランチ、`upstream/main` は remote-tracking を指す。曖昧な操作では `origin upstream` / `upstream main` のように remote を明示する。
 - 旧 `kai/main` は廃止済み（今後は使わない）。
-- **CI** — kai のゲートは `kai CI`（`.github/workflows/kai-ci.yml`、`scripts/kai/verify.sh` を実行）のみ。upstream 由来のワークフロー（CI/Tests/Typecheck/Publish to PyPI/Docker/Deploy Site 等16個）は fork で `disabled_manually`（誤作動と kai push での失敗ノイズを防ぐため）。upstream 追従 merge の検証で一時的に必要なら `gh workflow enable <id>` で戻す。詳細は `docs/kai/loop-engineering.md` §6.1。
+- **CI** — kai のゲートは `kai CI`（`.github/workflows/kai-ci.yml`、`scripts/kai/verify.sh` を実行）のみ。upstream 由来のワークフロー（CI/Tests/Typecheck/Publish to PyPI/Docker/Deploy Site 等16個）は fork で `disabled_manually`（誤作動と kai push での失敗ノイズを防ぐため）。upstream 追従 merge の検証で一時的に必要なら `gh workflow enable <id>` で戻す。詳細は `docs/kai/05-quality/01-loop-engineering.md` §6.1。
 
 ## 開発の鉄則（loop contract）★最優先
 
-Loop Engineering の原則（詳細と要件は `docs/kai/loop-engineering.md`）。**kai は自己改善エージェントであり、これらは他のどの規約より優先する。**
+Loop Engineering の原則（詳細と要件は `docs/kai/05-quality/01-loop-engineering.md`）。**kai は自己改善エージェントであり、これらは他のどの規約より優先する。**
 
 - **P1. 検証器に接地する。** 「完了した」の根拠は常に検証器の pass/fail（`scripts/run_tests.sh` / `node --test` / `scripts/kai-docs-lint.sh` / `ruff` / `ty` / `shellcheck` / CI / `gh pr` の実状態）。**エージェントの「できました」という自己申告は完了の根拠にしない。**
 - **P1b. やっていないことを「やった」と書かない。** ツールを実行していないなら実行していないと言う。ツール出力を要約・再構成する際に、実行していない検証の成功を作文しない（2026-07-05 の捏造インシデントの再発防止。[[fabrication-incident-verify-first]]）。不確かなら「不確か」と明示し、`ls`/`cat`/`git log` の生出力で裏を取る。

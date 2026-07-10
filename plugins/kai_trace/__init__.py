@@ -2,7 +2,7 @@
 
 hermes の lifecycle hook を観測し、相関 ID つきの構造化イベントを
 追記専用 JSONL として永続化する。振り返りループ（F-30）の分析対象。
-設計: docs/kai/design/00-system.md（ADR-1 / §5.1 共通エンベロープ）。
+設計: docs/kai/02-architecture/01-system.md（ADR-1 / §5.1 共通エンベロープ）。
 
 重要な制約（設計 ADR-1）:
 - hook は同期・エージェントのターンスレッド上で実行される。

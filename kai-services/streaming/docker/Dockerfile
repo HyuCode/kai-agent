@@ -1,5 +1,5 @@
 # kai 配信スタック（Linux デスクトップ + OBS + VNC）— Mac 上の Docker で稼働
-# 設計: docs/kai/design/streaming.md
+# 設計: docs/kai/02-architecture/02-streaming.md
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive

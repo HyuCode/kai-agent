@@ -1,7 +1,7 @@
 # kai アバター制作ワークスペース
 
 kai のアバター（**多脚メカ型多脚多脚ロボット**、PNGTuber）の素材制作用。要件は
-`docs/kai/avatar-requirements.md`。ここには **kai 固有の入力**（キャラブリーフ・
+`docs/kai/03-features/01-avatar/01-requirements.md`。ここには **kai 固有の入力**（キャラブリーフ・
 プロンプト）を置く。制作の一般ツール（テンプレ・QA ハーネス）は下記キットを使う。
 
 ## 使うもの

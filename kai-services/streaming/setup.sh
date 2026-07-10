@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # kai 配信スタックのセットアップ（Ubuntu 24.04 arm64 / Oracle A1 想定）。
-# 冪等: 何度実行してもよい。設計: docs/kai/design/streaming.md
+# 冪等: 何度実行してもよい。設計: docs/kai/02-architecture/02-streaming.md
 #
 # 使い方（サーバー上で、通常ユーザーで実行）:
 #   bash kai-services/streaming/setup.sh

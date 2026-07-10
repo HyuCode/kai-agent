@@ -2,7 +2,7 @@
 
 - **ステータス:** ドラフト（v0.1）
 - **作成日:** 2026-07-03
-- **前提:** `docs/kai/requirements.md` v0.2（確定方針 §9.1 を含む）
+- **前提:** `docs/kai/01-product/01-requirements.md` v0.2（確定方針 §9.1 を含む）
 
 ---
 
@@ -74,7 +74,7 @@ kai 固有コードの配置は fork 運用原則に従う（コア無改変）:
 
 - UTM VM（Ubuntu 24.04 Desktop arm64）を作成し `kai-services/streaming/vm/setup.sh` を適用
 - OBS（XSHM 画面キャプチャ + kai_speaker）でテスト配信（限定公開・30 分）を安定完走
-- 詳細な構成・既知の問題（GPU アクセラレーション不可等）は `docs/kai/design/streaming.md` v0.3
+- 詳細な構成・既知の問題（GPU アクセラレーション不可等）は `docs/kai/02-architecture/02-streaming.md` v0.3
 
 **検証結果（2026-07-04）:** VM 上で GNOME/X11/自動ログイン/1920x1080/kai_speaker/OBS(llvmpipe) すべて動作。
 配信開始成功（2512kbps / 30fps / ドロップ 0%）。xdotool によるリモート UI 操作も実証済み。
@@ -175,7 +175,7 @@ kai 固有コードの配置は fork 運用原則に従う（コア無改変）:
 
 ## 5. ポスト MVP への接続
 
-MVP 完了後、`docs/kai/requirements.md` のロードマップに接続する:
+MVP 完了後、`docs/kai/01-product/01-requirements.md` のロードマップに接続する:
 
 1. **フェーズ1 本実装**: 自律開発ループ（統一スケジューラ・WorkItem・役割切替による PR ゲート）→ kai が Issue を「自分で拾い」、実装 → レビュー（隔離コンテキスト）→ 承認・マージまで単一エージェントで回す
    1-b. **振り返りループ（F-30）**: MVP 期間中に貯めたトレースを対象に、cron + 振り返り skill（日次の振り返りレポート → 失敗パターン抽出 → 改善提案）を稼働させる。MVP 直後の最初の振り返りは「MVP 配信自体のレトロスペクティブ」を kai 自身に行わせる

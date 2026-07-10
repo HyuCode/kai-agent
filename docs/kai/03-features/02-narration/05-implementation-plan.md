@@ -1,12 +1,12 @@
 # 実況再設計 — 実装計画（レビュー反映版）
 
 2026-07-09 の懐疑レビュー（Opus × Codex、独立で強く一致）とハーネスのベースラインを反映した、
-実装の正典。`03-design.md` の一部主張はこの文書で**上書き**する（下記「設計の訂正」）。
+実装の正典。`04-design.md` の一部主張はこの文書で**上書き**する（下記「設計の訂正」）。
 
 ## 設計の訂正（レビューで判明した load-bearing な誤り）
 
 1. **接地に core 改変は不要。** 接地材料は既に hook でプラグインに届いており、narrator が捨てているだけ。
-   → 「no core diff」を**ハードゲート**にする（`03-design.md §2.1` / `02-requirements NFR3` を上書き）。
+   → 「no core diff」を**ハードゲート**にする（`04-design.md §2.1` / `03-requirements NFR3` を上書き）。
    - `post_tool_call` は既に `result` を渡す（`model_tools.py:884-889`）。`kai_trace`/`langfuse` は受けて記録済み
      （`plugins/kai_trace/__init__.py:157,164`）。narrator の `_on_post_tool_call` が `**_` で捨てている。
    - full `args` も既に来る（`model_tools.py:887`）。`_ARG_KEYS`（`plugins/kai_narrator/__init__.py:174`）が

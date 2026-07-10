@@ -25,7 +25,7 @@ function logWarn(message, meta) {
 // ---------------------------------------------------------------------------
 // 例外辞書（technical-terms.json）
 //
-// 運用方針（docs/kai/design/tts-reading-rules.md §4.4）: 事前に語彙を網羅する
+// 運用方針（docs/kai/02-architecture/04-tts-reading-rules.md §4.4）: 事前に語彙を網羅する
 // 読み辞書ではなく、汎用機構（品詞規則 + LLM）でもまだ読み間違いを観測した語だけを
 // 登録する「観測ベースの例外辞書」。エントリの一括拡充はしない。
 // ---------------------------------------------------------------------------
@@ -260,7 +260,7 @@ function tokenizeToKana(tokenizer, text) {
 
 /**
  * 1 トークンの読み（カタカナ）を返す。品詞ベースの汎用規則で読み分ける
- * （個別語の列挙はしない — docs/kai/design/tts-reading-rules.md §4.3-2）。
+ * （個別語の列挙はしない — docs/kai/02-architecture/04-tts-reading-rules.md §4.3-2）。
  */
 function tokenReading(token) {
   const surface = token.surface_form;
