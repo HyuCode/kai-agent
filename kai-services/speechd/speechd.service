@@ -1,6 +1,6 @@
 # kai 発話・字幕キュー（speechd）。systemd --user ユニットのテンプレート。
 # install.sh が @REPO_DIR@ を実パスに置換して ~/.config/systemd/user/ に配置する。
-# 設計: docs/kai/design/00-system.md §3(ADR-3) / §4 / §5.4。
+# 設計: docs/kai/02-architecture/01-system.md §3(ADR-3) / §4 / §5.4。
 #
 # 起動依存（設計 §5.4）: streaming（X → OBS）→ speechd → hermes。
 # ただし speechd 自体は streaming や TTS 不達でも縮退起動できる（配信スタック

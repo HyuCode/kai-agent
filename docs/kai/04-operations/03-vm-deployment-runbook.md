@@ -11,7 +11,7 @@
 - **hermes 本体（`plugins/kai_*`）は `-z` 一発起動で常駐していない。** plugin の
   変更（narrator 等）は pull すれば次回の hermes 実行時に自動反映される。restart 不要。
 - 各段階で health を確認し、赤なら次に進まない。TTS が絡む変更は「health だけでなく
-  実際に音が出る/koe が返る」まで確認する（`streaming-preflight.md` と同じ思想）。
+  実際に音が出る/koe が返る」まで確認する（`02-streaming-preflight.md` と同じ思想）。
 
 ---
 
@@ -118,4 +118,5 @@ cd ~/kai-agent
 - koe 生成が効いて読み上げが自然か（4 の移行が成功しているか）
 
 トレースは `~/.hermes/kai_trace/YYYY-MM-DD.jsonl`、スクショは `scrot`。所見を
-`docs/kai/stream-review/` に残し、必要なら follow-up Issue を切る。
+ローカル作業記録の `../stream-review/` に残し、共有すべき結論は
+`../06-evidence/` に番号付きの要約として追加したうえで、必要なら follow-up Issue を切る。

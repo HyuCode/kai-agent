@@ -1,6 +1,6 @@
 """kai_ide: kai が配信画面の VSCode を高速に操作するためのツール群（Issue #49）。
 
-設計: docs/kai/design/vscode-bridge.md。judgement = Codex(gpt-5.5) / 実行 = hermes。
+設計: docs/kai/02-architecture/03-vscode-bridge.md。judgement = Codex(gpt-5.5) / 実行 = hermes。
 本 plugin は VSCode 拡張「kai VSCode ブリッジ」（kai-typewriter、127.0.0.1:8920）を
 叩くツールを hermes に登録し、kai が VSCode の状態を読み、ファイルを開く/閉じる
 などの操作を computer_use を使わず高速に行えるようにする。

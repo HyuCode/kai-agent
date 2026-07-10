@@ -12,7 +12,7 @@ on the same fixture with the same backend at temperature=0 BEFORE adoption —
 "it should sound better" is not evidence.
 
 Usage:
-    python3 generate.py --fixture ../../docs/kai/narration/fixtures/issue65-confabulation.jsonl \
+    python3 generate.py --fixture ../../docs/kai/03-features/02-narration/90-fixtures/02-issue65-confabulation.jsonl \
         --base-url http://<llm-host>:8080/v1 --out gen-issue65.json
 
 Batching mirrors the plugin worker (_maybe_narrate / _handle_response):

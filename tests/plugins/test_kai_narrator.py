@@ -306,9 +306,9 @@ def test_handle_response_captures_context(narrator_mod, narrator, monkeypatch):
 def test_shorten_paths_to_basename(narrator_mod):
     out = narrator_mod._shorten_paths(
         "/home/kai/kai-agent/kai-services/streaming/vm/broadcast.sh を編集して "
-        "~/kai-agent/docs/kai/design/00-system.md も見る"
+        "~/kai-agent/docs/kai/02-architecture/01-system.md も見る"
     )
-    assert out == "broadcast.sh を編集して 00-system.md も見る"
+    assert out == "broadcast.sh を編集して 01-system.md も見る"
 
 
 def test_shorten_paths_keeps_urls_and_short_refs(narrator_mod):

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# kai の独立検証器（Loop Engineering の verifier。設計: docs/kai/loop-engineering.md FR-L2）。
+# kai の独立検証器（Loop Engineering の verifier。設計: docs/kai/05-quality/01-loop-engineering.md FR-L2）。
 #
 # kai 所有コードの全検証器を実際に実行し、pass/fail を集計する。
 # **これが「完了」の唯一の根拠。** エージェント（Claude / kai）は「できました」を

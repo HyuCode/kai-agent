@@ -3,7 +3,7 @@
 # 透過・最前面・枠なし・クリックスルーで表示する（手動起動用ヘルパー）。
 # 常駐は kai-overlay.service（systemd --user）を使うこと。
 #
-# 実体は overlay-window.py（WebKitGTK）。設計: docs/kai/design/00-system.md §4。
+# 実体は overlay-window.py（WebKitGTK）。設計: docs/kai/02-architecture/01-system.md §4。
 #
 # 使い方（VM 上で）:
 #   DISPLAY=:0 bash show-overlay.sh

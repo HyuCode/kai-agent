@@ -1,3 +1,3 @@
 # kai の発話音声用 null-sink。speechd がここへ再生し、OBS が kai_speaker.monitor を取り込む。
-# 設計: docs/kai/design/streaming.md §3.1
+# 設計: docs/kai/02-architecture/02-streaming.md §3.1
 load-module module-null-sink sink_name=kai_speaker sink_properties=device.description=kai_speaker

@@ -8,12 +8,12 @@
 > Flathub に aarch64 OBS がない。Xcomposite 窓キャプチャも OBS が SEGV し不成立）。
 > この Web ページ自体は speechd の `GET /overlay/` で配信されており、ローカル
 > プレビューや、将来 obs-browser を自前ビルドした際のアバター/コメント集約先
-> として維持する。経緯: `docs/kai/design/00-system.md` §4。
+> として維持する。経緯: `docs/kai/02-architecture/01-system.md` §4。
 
 kai の配信画面に重ねる Web オーバーレイ。字幕を表示する（将来的にはアバターや
 コメント表示なども同じオーバーレイに追加していく想定の土台）。
 
-設計の正典: `docs/kai/design/00-system.md` §4「発話・字幕同期メカニズム」。
+設計の正典: `docs/kai/02-architecture/01-system.md` §4「発話・字幕同期メカニズム」。
 字幕は当初 OBS の text ソース（ファイル読み込み）方式だったが、汎用性
 （将来アバター・コメント・進捗も同じ overlay で表現し、OBS ソースを増やさない）
 のため **Web オーバーレイ + SSE 購読方式**に変更した。字幕データの生成元は

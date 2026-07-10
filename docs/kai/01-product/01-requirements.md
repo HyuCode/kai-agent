@@ -20,7 +20,7 @@ kai は、**YouTube でライブ配信をしながらライブコーディング
 
 これまで独自に TypeScript で実装してきたプロトタイプ（成熟した設計を持つが macOS 依存が強い）を**参考**としつつ、**hermes-agent（Python 製の自己改善型エージェント基盤）を新たなベース**として kai を再実装する。
 
-> **プロトタイプの参照範囲（重要）:** プロトタイプを参考にするのは**機能（何ができるべきか）のみ**である。**アーキテクチャ・実装方式はプロトタイプに従う必要はなく、hermes-agent に最も適した方式を採用する。** 本書のプロトタイプ由来の語彙（Narrator / Beat / WorkItem / OverlayEvent 等）は機能概念の共有のためのものであり、同名のコンポーネントやレイヤーの実装を義務付けない。実現方式は基本設計（`docs/kai/design/`）で決定する。hermes-agent は「同一エージェントコアを CLI / メッセージング Gateway / TUI / Electron で共有する」構成を持ち、LLM プロバイダ抽象・cron・delegation・memory・TTS/STT・computer_use（GUI 操作）・browser 自動化など、kai に必要な基盤機能の多くを既に備えている。
+> **プロトタイプの参照範囲（重要）:** プロトタイプを参考にするのは**機能（何ができるべきか）のみ**である。**アーキテクチャ・実装方式はプロトタイプに従う必要はなく、hermes-agent に最も適した方式を採用する。** 本書のプロトタイプ由来の語彙（Narrator / Beat / WorkItem / OverlayEvent 等）は機能概念の共有のためのものであり、同名のコンポーネントやレイヤーの実装を義務付けない。実現方式は基本設計（`docs/kai/02-architecture/`）で決定する。hermes-agent は「同一エージェントコアを CLI / メッセージング Gateway / TUI / Electron で共有する」構成を持ち、LLM プロバイダ抽象・cron・delegation・memory・TTS/STT・computer_use（GUI 操作）・browser 自動化など、kai に必要な基盤機能の多くを既に備えている。
 
 ### 1.3 実行環境
 

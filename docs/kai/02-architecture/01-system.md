@@ -2,10 +2,10 @@
 
 - **ステータス:** ドラフト（v0.1）
 - **作成日:** 2026-07-03
-- **前提:** `docs/kai/requirements.md` v0.3 / `docs/kai/mvp-plan.md`
+- **前提:** `docs/kai/01-product/01-requirements.md` v0.3 / `docs/kai/01-product/02-mvp-roadmap.md`
 - **検討過程:** Opus（deep-reasoner）と Codex に同一の設計課題を独立検討させ、両者の結論を統合した（本書 §2 の決定記録参照）
 
-本書は kai 全体のアーキテクチャと、全コンポーネント設計が従う**共通規約の正典**である。個別コンポーネントの設計は `docs/kai/templates/component-design.md` に従い、本書を参照する。
+本書は kai 全体のアーキテクチャと、全コンポーネント設計が従う**共通規約の正典**である。個別コンポーネントの設計は `docs/kai/99-templates/01-component-design.md` に従い、本書を参照する。
 
 ---
 

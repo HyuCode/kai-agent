@@ -1,5 +1,5 @@
 // kai 配信オーバーレイ: speechd の SSE (`GET /events`) を購読して字幕を表示する。
-// 設計: docs/kai/design/00-system.md §4。詳細は kai-services/overlay/README.md。
+// 設計: docs/kai/02-architecture/01-system.md §4。詳細は kai-services/overlay/README.md。
 //
 // 外部依存なし（素の JS・ブラウザ標準の EventSource のみ）。
 // EventSource は仕様上、接続が切れると自動で再接続する（onerror はログ用）。

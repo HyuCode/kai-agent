@@ -1,7 +1,7 @@
 # kai-services/streaming/vm
 
 kai-vm（UTM / Ubuntu 24.04 Desktop arm64）上で動かす、配信ステージ用のセットアップ・運用スクリプト群です。
-詳しい運転手順は `docs/kai/m4-runbook.md` に置き、この README は各ファイルの入口と使い分けだけをまとめます。
+詳しい運転手順は `docs/kai/04-operations/01-manual-broadcast-runbook.md` に置き、この README は各ファイルの入口と使い分けだけをまとめます。
 
 ## ファイルの役割
 
@@ -43,14 +43,14 @@ kai-vm（UTM / Ubuntu 24.04 Desktop arm64）上で動かす、配信ステージ
 3. `setup.sh` で配信スタックの土台を入れ、必要に応じて再起動と Tailscale 認証を行います。
 4. `build-obs-browser.sh` で字幕用の OBS ブラウザソースを有効化します。
 5. `setup-vscode.sh` で VSCode 配信ステージと `kai-typewriter` 拡張を入れます。
-6. OBS の初期シーン、字幕ブラウザソース、冒頭スライドなどの細かい確認は `docs/kai/m4-runbook.md` を見ます。
+6. OBS の初期シーン、字幕ブラウザソース、冒頭スライドなどの細かい確認は `docs/kai/04-operations/01-manual-broadcast-runbook.md` を見ます。
 
 ### 配信当日
 
-1. `docs/kai/m4-runbook.md` の事前チェックリストで、機密・認証・サービス疎通を確認します。
+1. `docs/kai/04-operations/01-manual-broadcast-runbook.md` の事前チェックリストで、機密・認証・サービス疎通を確認します。
 2. VSCode + tmux の配信ステージを起動します。
 3. `broadcast.sh agenda` で冒頭スライドの予定を設定します。
 4. `broadcast.sh start` で OBS を起動し、websocket 疎通と画面を確認します。
-5. 配信開始、シーン切替、状態確認、終了手順は `docs/kai/m4-runbook.md` の運転台本に従います。
+5. 配信開始、シーン切替、状態確認、終了手順は `docs/kai/04-operations/01-manual-broadcast-runbook.md` の運転台本に従います。
 
 配信中の実装タスクでは、事故防止のため `broadcast.sh status` や `screenshot` 以外の配信制御コマンドを不用意に実行しないでください。

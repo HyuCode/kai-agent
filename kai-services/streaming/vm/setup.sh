@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # kai 配信スタックのセットアップ — UTM VM（Ubuntu 24.04 Desktop arm64）内で実行する。
-# 冪等: 何度実行してもよい。設計: docs/kai/design/streaming.md
+# 冪等: 何度実行してもよい。設計: docs/kai/02-architecture/02-streaming.md
 #
 # 前提: Ubuntu Desktop を標準インストール済み（ユーザー名 kai 推奨）、ネットワーク接続あり。
 # 使い方（VM 内のターミナルで）:

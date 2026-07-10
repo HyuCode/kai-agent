@@ -1,7 +1,7 @@
 # kai キャラ仕様シート（多脚メカ型 kai）
 
 > asset-production kit の `sheets/character-brief.md` を kai 用に記入したもの。
-> 要件は `docs/kai/avatar-requirements.md`。**非人型のためレイヤーは眼中心に読み替える**
+> 要件は `docs/kai/03-features/01-avatar/01-requirements.md`。**非人型のためレイヤーは眼中心に読み替える**
 > （§「レイヤー読み替え」参照）。
 
 ## 基本情報

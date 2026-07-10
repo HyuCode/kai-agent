@@ -5,11 +5,11 @@
 - **満たす要件:** Issue #49（本設計の親）。関連: #46（指示プロンプトを隠す）/ #47（冒頭説明を Desktop ブラウザで）/ #48（コマンドを見える端末で実行・実況と同期）
 - **マイルストーン:** M4（配信演出の完成）
 - **種別:** plugin（ツール override）+ VSCode 拡張（ブリッジ）+ 運転台本
-- **配置:** `plugins/kai_ide/`（新）、`kai-services/streaming/vm/vscode/kai-typewriter/`（拡張、ブリッジに拡張）、`docs/kai/m4-runbook.md`
+- **配置:** `plugins/kai_ide/`（新）、`kai-services/streaming/vm/vscode/kai-typewriter/`（拡張、ブリッジに拡張）、`docs/kai/04-operations/01-manual-broadcast-runbook.md`
 
 ## 0. 背景 — なぜ自作ツールか
 
-第 3 回リハーサル（`docs/kai/stream-review/test-live-03.md`）のオーナーレビューで、
+第 3 回リハーサルのオーナーレビューで、
 配信を「人が Linux Desktop を操作しながらライブコーディングしている画」にしたい、
 という方向性が示された。現状は:
 

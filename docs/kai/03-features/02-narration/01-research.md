@@ -1,6 +1,6 @@
 # 実況再設計 — 調査メモ（証跡）
 
-`01-target-narration.md`（目指す実況像）の根拠。2026-07-09 に 2 系統で調査した要約。
+`02-target-narration.md`（目指す実況像）の根拠。2026-07-09 に 2 系統で調査した要約。
 
 - [A] Web 調査 — 人格設計・場面別語彙・実況技法（一人称・自己実況の枠で）
 - [B] 現状棚卸し — 現 narrator 実装・ペルソナ・操作セット・元 kai 資産（コード接地）
@@ -75,7 +75,7 @@
    narrator が捨てている**のが正しい（`post_tool_call` は `result` を渡す＝`model_tools.py:884`、
    `_on_post_tool_call` が `**_` で破棄。full `args` も来るが `_ARG_KEYS` が `content/new_string/todos` を落とす。
    本体の意図は `post_api_request` で観測可能だが未購読）。→ **接地強化は core 改変不要・プラグインのみ**。
-   詳細は `04-implementation-plan.md`。
+   詳細は `05-implementation-plan.md`。
 2. **文脈の時間ズレ**: `_context` = 前ターンの最終応答。`post_llm_call` はターン完了後に 1 回のみ発火
    （`turn_finalizer.py:365`）。長ターン中の per-tool の意図が届かない。`conversation_history` は
    hook に渡っているのに narrator は未使用（未活用の接地源）。
@@ -118,5 +118,5 @@
 | B             | メイン本体が自分の声で per-tool 実況                            | 出力なので無傷。会話トークン増 | 最も本物。沈黙区間を埋めきれない（heartbeat 別途）                   |
 | **C（推奨）** | 本体＝意図・要点、観測者＝沈黙埋め・結果反応・冒頭 Issue 説明   | 両立で不可侵を守れる           | 2 経路で実装は複雑だが confabulation・無音・キャッシュを同時に解ける |
 
-> キャッシュ不可侵の根拠: `docs/kai/design/00-system.md:57`「hook は観測専用でキャッシュに触れない。
+> キャッシュ不可侵の根拠: `docs/kai/02-architecture/01-system.md:57`「hook は観測専用でキャッシュに触れない。
 > auxiliary LLM は会話外の独立メッセージ」。本体の一人称発話は「出力」なのでキャッシュを壊さない。

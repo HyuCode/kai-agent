@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # speechd を VM 上で systemd --user サービスとして登録する。
-# 冪等: 何度実行してもよい。設計: docs/kai/design/00-system.md §3(ADR-3) / §4。
+# 冪等: 何度実行してもよい。設計: docs/kai/02-architecture/01-system.md §3(ADR-3) / §4。
 # 作法は kai-services/streaming/setup.sh（kai-x11vnc.service の @TAILSCALE_IP@
 # 置換）を踏襲する。
 #

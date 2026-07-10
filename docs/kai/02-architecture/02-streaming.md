@@ -105,7 +105,7 @@ ssh kai@kai-vm '
 2. ~~実機で加えた追加設定を `vm/setup.sh` に反映~~（反映済み 2026-07-04）
 3. M4: OBS 自動起動・配信開始/停止の skill 化（obs-websocket 有効化を含む）
 
-**変更してよいファイル:** `kai-services/streaming/**`、`docs/kai/design/streaming.md`
+**変更してよいファイル:** `kai-services/streaming/**`、`docs/kai/02-architecture/02-streaming.md`
 
 ## 11. 完了条件（DoD チェックリスト）
 

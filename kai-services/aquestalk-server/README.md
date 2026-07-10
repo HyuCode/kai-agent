@@ -40,7 +40,7 @@ npm start
 ### koe 生成の LLM 主経路
 
 `KOE_LLM_BASE_URL` を設定すると、テキスト → koe 変換の主経路が LLM になる
-（設計: `docs/kai/design/tts-reading-rules.md` §5.2）。ルールベース変換（kuromoji）の
+（設計: `docs/kai/02-architecture/04-tts-reading-rules.md` §5.2）。ルールベース変換（kuromoji）の
 出力を「参考よみ」としてプロンプトに渡し、LLM は英単語のひらがな読みと `/` 区切り・
 読点だけを直す（v2 アンカー方式 — 漢字の読みは kuromoji のほうが正確なため）。
 LLM 出力は sanitize → 品詞安全網 → 静的バリデーションを通し、違反・不達時は

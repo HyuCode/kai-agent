@@ -10,7 +10,7 @@
 
 ## 0. 背景 — 症状と原因の対応
 
-2026-07-05 第 1 回リハーサル（`docs/kai/stream-review/test-live.md`）で観測された症状と、
+2026-07-05 第 1 回リハーサル（記録は `../04-operations/01-manual-broadcast-runbook.md`）で観測された症状と、
 現行実装（旧 kai プロジェクト `/Volumes/ExSSD/apps/seiichi3141/kai` のルールベース変換
 `packages/tts/src/converter.ts` の JS 移植）における原因:
 
@@ -249,7 +249,7 @@ PR を 3 つに分割する（それぞれ独立に検証可能）:
 
 **変更してよいファイル:** `kai-services/aquestalk-server/src/*`、
 `kai-services/aquestalk-server/README.md`、`kai-services/speechd/speechd.py`、
-`kai-services/speechd/README.md`、`docs/kai/design/tts-reading-rules.md`（本書）。
+`kai-services/speechd/README.md`、`docs/kai/02-architecture/04-tts-reading-rules.md`（本書）。
 それ以外（特に hermes コア・plugins/）は本件では変更禁止
 
 ## 11. 完了条件（DoD チェックリスト）
