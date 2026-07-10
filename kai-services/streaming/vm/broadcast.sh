@@ -204,12 +204,14 @@ if stream_rc == 0:
         mb = bytes_mb(stream.get("outputBytes"))
         if mb is not None:
             parts.append(f"出力 {mb:.1f} MB")
-        skipped = stream.get("outputSkippedFrames")
-        if isinstance(skipped, int):
-            parts.append(f"スキップ {skipped} frames")
         reconnecting = stream.get("outputReconnecting")
         warning = " ⚠️ 再接続中" if reconnecting else ""
         print(f"配信: {' / '.join(parts)}{warning}")
+        skipped = stream.get("outputSkippedFrames")
+        total = stream.get("outputTotalFrames")
+        if isinstance(skipped, int) and isinstance(total, int):
+            rate = (skipped / total * 100) if total > 0 else 0.0
+            print(f"ドロップ: {skipped} / {total} ({rate:.2f}%)")
     else:
         print("配信: 停止")
 else:
